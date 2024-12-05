@@ -1,23 +1,4 @@
-#include <cstddef>
-#include <iostream>
-#include <ostream>
-#include <vector>
-#include <random>
-#include <thread>
-#include <algorithm>
-#include <functional>
-#include <map>
-#include <iomanip>
-#include <cmath>
-
-#include "parser.hh"
-
-using namespace std;
-
-using solution_t = vector<bool>;
-// using qubo_t = map<pair<int, int>, double>;
-using qubo_t = vector<pair<pair<int, int>, double>>;
-using scheduler_t = function<double(double T_0, double T, int iter, int max_iter)>;
+#include "vertexing.hh"
 
 ostream& operator << (ostream& os, const solution_t& x) {
     for (auto xi : x) os << xi << ' ';
@@ -42,6 +23,7 @@ int qubo_size(const qubo_t& Q) {
 struct QUBO {
     int n;
     qubo_t Q;
+    // todo: more memory efficient data structure?
     vector<vector<pair<int, double>>> affectedby; // list of js that are affected by flipping a certain bit
 
     QUBO(qubo_t Q) : Q(Q) {
@@ -138,6 +120,26 @@ void assert_lower_triangular(const qubo_t& Q) {
         if (entry.first.first < entry.first.second) {
             cerr << "Error: QUBO is not in lower triangular form." << endl;
             exit(1);
+        }
+    }
+}
+
+void assert_upper_triangular(const qubo_t& Q) {
+    for (const auto& entry : Q) {
+        if (entry.first.first > entry.first.second) {
+            cerr << "Error: QUBO is not in upper triangular form." << endl;
+            exit(1);
+        }
+    }
+}
+
+// todo: we shouldn't need to do this...
+// hack for now.
+void upper_to_lower(qubo_t& Q) {
+    assert_upper_triangular(Q);
+    for (auto& entry : Q) {
+        if (entry.first.first < entry.first.second) {
+            swap(entry.first.first, entry.first.second);
         }
     }
 }
@@ -266,9 +268,15 @@ void present_results(const vector<result>& results, bool show_sols = true, int p
     cout << '\n';
 
     for (const auto& [energy, sols] : counts) {
-        cout << "Energy: " << l_to_d(energy) << '\n';
+        int total = 0;
         for (const auto& [sol, count] : sols) {
-            cout << "\tSolution: " << sol << " (" << count << "x)" << '\n';
+            total += count;
+        }
+        cout << "Energy: " << l_to_d(energy) << " (" << total << "x)" << '\n';
+        if (show_sols) {
+            for (const auto& [sol, count] : sols) {
+                cout << "\t Sol: " << sol << " (" << count << "x)" << '\n';
+            }
         }
     }
 }
@@ -317,56 +325,170 @@ QUBO randgen_qubo(int n) {
     return Q;
 }
 
-/* todo:
-maybe flip all bits in sequence instead of random ones?
-*/
+int run_vertexing(int argc, char *argv[]) {
+    if (argc != 2) {
+        cout << "Usage: ./annealer <filename>\n";
+        return 1;
+    }
 
-int main() {
-    // cout << fixed << setprecision(numeric_limits<double>::max_digits10);
-    // cout << fixed << setprecision(5);
-    // qubo_t Q = condense({
-    //     { -2,  1,  1,  0,  0 },
-    //     {  1, -2,  0,  1,  0 },
-    //     {  1,  0, -3,  1,  1 },
-    //     {  0,  1,  1, -3,  1 },
-    //     {  0,  0,  1,  1, -2 }
-    // });
+    string filename = argv[1];
+    event_t event = loadTracks(filename);
 
-    // qubo_t Q = condense({
-    //     {-17, 10, 10, 10, 0, 20},
-    //     {10, -18, 10, 10, 10, 20},
-    //     {10, 10, -29, 10, 20, 20},
-    //     {10, 10, 10, -19, 10, 10},
-    //     {0, 10, 20, 10, -17, 10},
-    //     {20, 20, 20, 10, 10, -28}
-    // });
+    cout << "Loaded " << event.nT << " tracks\n";
+    cout << "Loaded " << event.nV << " vertices\n";
+    // for (int i = 0; i < trackData.trackData.size(); i++) {
+    //     cout << trackData.trackData[i].first << " " << trackData.trackData[i].second << endl;
+    // }
 
-    // auto Q = QUBO(parse_qubo(read_file("qubo.txt")));
+    qubo_t qubo = event_to_qubo(event);
 
-    auto Q = randgen_qubo(300);
+    cout << "QUBO size: " << qubo_size(qubo) << '\n';
+
+    upper_to_lower(qubo);
+
+    cout << "converted to lower triangular\n";
+
+    auto Q = QUBO(qubo);
 
     // cout << Q;
 
-    // auto Q = randgen_qubo(10);
-
     random_device rd;
-    unsigned seed = rd();
+    // unsigned seed = rd();
 
-    settings s = {.max_iter = 40000, .T_0 = 100.0, .temp_scheduler = make_geometric_scheduler(0.999), .seed = seed};
+    settings s = {.max_iter = 40000, .T_0 = 100.0,
+    .temp_scheduler = make_geometric_scheduler(0.999),
+    // .temp_scheduler = linear_scheduler,
+    .seed = rd()};
 
     vector<result> results = branch_rejoin_sa(Q, s, 8, 4, 4); // threads, branches, samples per thread
 
     result best = results[0];
 
     cout << "\nBranch rejoin (approach B) results: " << '\n';
-    present_results(results);
+
+    present_results(results, false);
+
+    // present_results(results);
+
+    // s.max_iter *= 2;
+
+    // s.temp_scheduler = linear_scheduler;
+
+    s.seed = rd();
 
     results = multithreaded_sim_anneal(Q, s, 8, 4); // threads, samples per thread
 
-    best = results[0];
+    // best = results[0];
+
+    if (results[0].energy < best.energy) {
+        cout << "choosing multithreaded result\n";
+        best = results[0];
+    }
 
     cout << "\nMultithreaded (approach C) results: " << '\n';
-    present_results(results);
+
+    present_results(results, false);
+
+    // present_results(results);
+
+    vector<int> assignment = interpret(best.solution, event.nT, event.nV);
+
+    cout << "Assignment: \n";
+
+    // for (int i = 0; i < assignment.size(); i++) {
+    //     cout << "Track " << i << " -> Vertex " << assignment[i] << '\n';
+    //     cout << "track position: " << event.trackData[i].first << " vertex position: " << event.trackData[assignment[i]].first << '\n';
+    // }
+
+    map<int, vector<int>> vertex_to_tracks;
+    for (int i = 0; i < assignment.size(); i++) {
+        vertex_to_tracks[assignment[i]].push_back(i);
+    }
+
+    for (const auto& [vertex, tracks] : vertex_to_tracks) {
+        cout << "Vertex " << vertex << " tracks: \n";
+        for (int track : tracks) {
+            cout << track << " position: " << event.trackData[track].first 
+            // << " error: " << event.trackData[track].second
+            << '\n';
+        }
+        cout << '\n';
+    }
 
     return 0;
 }
+
+int main(int argc, char* argv[]) {
+    run_vertexing(argc, argv);
+}
+
+// int main() {
+//     // cout << fixed << setprecision(numeric_limits<double>::max_digits10);
+//     // cout << fixed << setprecision(5);
+//     // qubo_t Q = condense({
+//     //     { -2,  1,  1,  0,  0 },
+//     //     {  1, -2,  0,  1,  0 },
+//     //     {  1,  0, -3,  1,  1 },
+//     //     {  0,  1,  1, -3,  1 },
+//     //     {  0,  0,  1,  1, -2 }
+//     // });
+
+//     // qubo_t Q = condense({
+//     //     {-17, 10, 10, 10, 0, 20},
+//     //     {10, -18, 10, 10, 10, 20},
+//     //     {10, 10, -29, 10, 20, 20},
+//     //     {10, 10, 10, -19, 10, 10},
+//     //     {0, 10, 20, 10, -17, 10},
+//     //     {20, 20, 20, 10, 10, -28}
+//     // });
+
+//     auto t = "qubo.txt";
+
+//     // t = "2v.json";
+
+//     auto Q = QUBO(parse_qubo(read_file(t)));
+
+//     // auto Q = randgen_qubo(6000);
+
+//     // cout << Q;
+
+//     // auto Q = randgen_qubo(10);
+
+//     random_device rd;
+//     // unsigned seed = rd();
+
+//     settings s = {.max_iter = 40000, .T_0 = 100.0,
+//     .temp_scheduler = make_geometric_scheduler(0.999), 
+//     // .temp_scheduler = linear_scheduler,
+//     .seed = rd()};
+
+//     vector<result> results = branch_rejoin_sa(Q, s, 8, 4, 4); // threads, branches, samples per thread
+
+//     result best = results[0];
+
+//     cout << "\nBranch rejoin (approach B) results: " << '\n';
+//     present_results(results, false);
+//     // present_results(results);
+
+//     // s.max_iter *= 2;
+//     // s.temp_scheduler = linear_scheduler;
+
+//     s.seed = rd();
+
+//     results = multithreaded_sim_anneal(Q, s, 8, 4); // threads, samples per thread
+
+//     best = results[0];
+
+//     cout << "\nMultithreaded (approach C) results: " << '\n';
+//     present_results(results, false);
+//     // present_results(results);
+
+//     vector<int> assignment = interpret(best.solution, Q.n/2, 2); // nT, nV
+
+//     cout << "Assignment: ";
+//     for (int i = 0; i < assignment.size(); i++) {
+//         cout << "Track " << i << " -> Vertex " << assignment[i] << '\n';
+//     }
+
+//     return 0;
+// }
