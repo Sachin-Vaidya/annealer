@@ -355,9 +355,9 @@ int run_vertexing(int argc, char *argv[]) {
     random_device rd;
     // unsigned seed = rd();
 
-    settings s = {.max_iter = 40000, .T_0 = 100.0,
-    .temp_scheduler = make_geometric_scheduler(0.999),
-    // .temp_scheduler = linear_scheduler,
+    settings s = {.max_iter = 80000, .T_0 = 100.0,
+    // .temp_scheduler = make_geometric_scheduler(0.999),
+    .temp_scheduler = linear_scheduler,
     .seed = rd()};
 
     vector<result> results = branch_rejoin_sa(Q, s, 8, 4, 4); // threads, branches, samples per thread
@@ -369,13 +369,9 @@ int run_vertexing(int argc, char *argv[]) {
     present_results(results, false);
 
     // present_results(results);
-
     // s.max_iter *= 2;
-
     // s.temp_scheduler = linear_scheduler;
-
-    s.seed = rd();
-
+    // s.seed = rd();
     results = multithreaded_sim_anneal(Q, s, 8, 4); // threads, samples per thread
 
     // best = results[0];
@@ -406,7 +402,7 @@ int run_vertexing(int argc, char *argv[]) {
     }
 
     for (const auto& [vertex, tracks] : vertex_to_tracks) {
-        cout << "Vertex " << vertex << " tracks: \n";
+        cout << "Vertex " << vertex << " tracks (" << tracks.size() << "): \n";
         for (int track : tracks) {
             cout << track << " position: " << event.trackData[track].first 
             // << " error: " << event.trackData[track].second

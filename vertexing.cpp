@@ -13,7 +13,7 @@ vector<int> interpret(const solution_t &solution, const int nT, const int nV) {
         if (solution[i]) {
             if (assignment[i % nT] != -1) { // track already assigned
                 cout << "track " << i % nT << " already assigned!\n";
-                return vector<int>(); // invalid solution
+                // return vector<int>(); // invalid solution
             }
             int track = i % nT;
             int vertex = i / nT;
@@ -23,7 +23,7 @@ vector<int> interpret(const solution_t &solution, const int nT, const int nV) {
 
     if (find(assignment.begin(), assignment.end(), -1) != assignment.end()) {
         cout << "not all tracks assigned!\n";
-        return vector<int>(); // invalid solution
+        // return vector<int>(); // invalid solution
         return assignment;
     }
 
