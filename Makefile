@@ -6,7 +6,7 @@ CXXFLAGS = -std=c++17 -Wall -pthread -Ofast
 
 # Source files
 SRCS = annealer.cpp parser.cpp vertexing.cpp
-HEADERS = parser.hh vertexing.hh
+HEADERS = parser.hh vertexing.hh ThreadPool.h
 
 # Executable name
 TARGET = annealer

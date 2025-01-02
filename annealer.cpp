@@ -1,4 +1,10 @@
 #include "vertexing.hh"
+// #include <execution>
+// #include <numeric>
+#include <algorithm>
+#include "ThreadPool.h"
+
+#define POOL_SIZE 1
 
 ostream& operator << (ostream& os, const solution_t& x) {
     for (auto xi : x) os << xi << ' ';
@@ -12,58 +18,12 @@ ostream& operator << (ostream& os, const qubo_t& Q) {
     return os;
 }
 
-int qubo_size(const qubo_t& Q) {
-    int n = 0;
-    for (const auto& entry : Q) {
-        n = max(n, entry.first.first);
-    }
-    return n + 1; // 0 indexed
-}
-
-struct QUBO {
-    int n;
-    qubo_t Q;
-    // todo: more memory efficient data structure?
-    vector<vector<pair<int, double>>> affectedby; // list of js that are affected by flipping a certain bit
-
-    QUBO(qubo_t Q) : Q(Q) {
-        n = qubo_size(Q);
-        affectedby.resize(n, {});
-        // for (const auto& entry : Q) {
-        for (const auto& [idx, val] : Q) {
-            affectedby[idx.first].emplace_back(idx.second, val);
-            if (idx.first == idx.second) continue;
-            affectedby[idx.second].emplace_back(idx.first, val);
-        }
-    }
-
-    double evaluate(const solution_t& x) const {
-        double value = 0.0;
-        for (const auto& [idx, val] : Q)
-            if (x[idx.first] && x[idx.second]) value += val;
-        return value;
-    }
-
-    double evaluateDiff(const solution_t& x, int flip_idx) const {
-        double diff = 0.0; // first, find what would be the value if this bit was on
-        for (const auto& [j, Q_ij] : affectedby[flip_idx]) if (x[j] || j == flip_idx) diff += Q_ij;
-        return x[flip_idx] ? -diff : diff; // if on, turn off. if off, turn on.
-    }
-
-    friend ostream& operator << (ostream& os, const QUBO& Q) {
-        os << "QUBO of size " << Q.n << ":\n";
-        for (const auto& entry : Q.Q) {
-            os << '[' << entry.first.first << ' ' << entry.first.second << "] : " << entry.second << endl;
-        }
-        return os;
-    }
-};
-
 struct settings {
     int max_iter;
     double T_0;
     scheduler_t temp_scheduler;
     unsigned seed;
+    bool dolog = true;
 };
 
 struct result {
@@ -92,6 +52,10 @@ result sim_anneal(const QUBO& Q, const settings s, const solution_t init_guess =
 
     double T = s.T_0;
     for (int iter = 0; iter < s.max_iter; iter++) {
+        if (iter % 1000 == 0 && s.dolog) {
+            cout << "Iter: " << iter << " Energy: " << best_f_x << " T: " << T << '\n';
+        }
+
         solution_t x_prime = x;
         int flip_idx = flip_dis(gen);
 
@@ -178,41 +142,52 @@ vector<result> multithreaded_sim_anneal(const QUBO& Q, const settings s, int num
     return results;
 }
 
-// takes in a sorted list of results and returns at least n solutions with as many unique solutions as possible that all have the best energy
+// // takes in a sorted list of results and returns at least n solutions with as many unique solutions as possible that all have the best energy
+// vector<solution_t> best_effort_unique(const vector<result>& results, int n) {
+//     if (results.empty()) return {};
+
+//     vector<solution_t> result(n);
+//     map<solution_t, bool> best_unique_solutions;
+
+//     for (int i = 0; i < results.size(); i++) {
+//         if (results[i].energy == results[0].energy) {
+//             best_unique_solutions[results[i].solution] = true;
+//         } else {
+//             break;
+//         }
+//     }
+
+//     int num_best_unique = best_unique_solutions.size();
+
+//     int i = 0;
+//     for (const auto& [sol, _] : best_unique_solutions) {
+//         if (i == n) break;
+//         result[i++] = sol;
+//     }
+//     for (int j = 0; i < n; i++, j++) { // copy the start to fill the rest
+//         result[i] = result[j];
+//     }
+
+//     // debug
+
+//     cout << "Num best unique: " << num_best_unique << '\n';
+//     // for (const auto& sol : result) {
+//     //     cout << sol << '\n';
+//     // }
+//     // cout << '\n';
+
+//     return result;
+// }
+
+// replaces bottom half with top half
 vector<solution_t> best_effort_unique(const vector<result>& results, int n) {
     if (results.empty()) return {};
-
-    vector<solution_t> result(n);
-    map<solution_t, bool> best_unique_solutions;
-
-    for (int i = 0; i < results.size(); i++) {
-        if (results[i].energy == results[0].energy) {
-            best_unique_solutions[results[i].solution] = true;
-        } else {
-            break;
-        }
+    // takes sorted list and replaces bottom half with top half
+    vector<solution_t> newresults(n);
+    for (int i = 0; i < n; i++) {
+        newresults[i] = results[i % (results.size() / 2)].solution;
     }
-
-    int num_best_unique = best_unique_solutions.size();
-
-    int i = 0;
-    for (const auto& [sol, _] : best_unique_solutions) {
-        if (i == n) break;
-        result[i++] = sol;
-    }
-    for (int j = 0; i < n; i++, j++) { // copy the start to fill the rest
-        result[i] = result[j];
-    }
-
-    // debug
-
-    cout << "Num best unique: " << num_best_unique << '\n';
-    // for (const auto& sol : result) {
-    //     cout << sol << '\n';
-    // }
-    // cout << '\n';
-
-    return result;
+    return newresults;
 }
 
 
@@ -310,7 +285,7 @@ vector<vector<double>> sparsen(const qubo_t& dense) {
     return sparse;
 }
 
-QUBO randgen_qubo(int n) {
+qubo_t randgen_qubo(int n) {
     qubo_t Q;
     random_device rd;
     unsigned seed = rd();
@@ -348,21 +323,27 @@ int run_vertexing(int argc, char *argv[]) {
 
     cout << "converted to lower triangular\n";
 
-    auto Q = QUBO(qubo);
+    // ThreadPool pool(std::thread::hardware_concurrency());
+    ThreadPool pool(POOL_SIZE);
+
+    auto Q = QUBO(qubo, pool);
 
     // cout << Q;
 
     random_device rd;
     // unsigned seed = rd();
 
-    settings s = {.max_iter = 80000, .T_0 = 100.0,
-    // .temp_scheduler = make_geometric_scheduler(0.999),
+    settings s = {.max_iter = 800000, .T_0 = 400.0,
+    // .temp_scheduler = make_geometric_scheduler(0.999999),
     .temp_scheduler = linear_scheduler,
     .seed = rd()};
 
-    vector<result> results = branch_rejoin_sa(Q, s, 8, 4, 4); // threads, branches, samples per thread
+    vector<result> results;
+    result best;
 
-    result best = results[0];
+    results = branch_rejoin_sa(Q, s, 8, 4, 4); // threads, branches, samples per thread
+
+    best = results[0];
 
     cout << "\nBranch rejoin (approach B) results: " << '\n';
 
@@ -372,6 +353,7 @@ int run_vertexing(int argc, char *argv[]) {
     // s.max_iter *= 2;
     // s.temp_scheduler = linear_scheduler;
     // s.seed = rd();
+    s.dolog = false;
     results = multithreaded_sim_anneal(Q, s, 8, 4); // threads, samples per thread
 
     // best = results[0];
@@ -410,6 +392,15 @@ int run_vertexing(int argc, char *argv[]) {
         }
         cout << '\n';
     }
+
+    print_score(assignment, event);
+
+    double ground = ground_state(Q, event);
+
+    cout << "Ground state: " << ground << '\n';
+    cout << "Best energy: " << best.energy << '\n';
+    cout << "ratio: " << best.energy / ground << '\n';
+    cout << "diff: " << best.energy - ground << '\n';
 
     return 0;
 }

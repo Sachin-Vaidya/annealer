@@ -30,6 +30,43 @@ vector<int> interpret(const solution_t &solution, const int nT, const int nV) {
     return assignment;
 }
 
+void print_score(const vector<int> &assignment, const event_t &event) {
+    // print the ARI score of the assignment
+    vector<int> true_labels(event.nT);
+    for (int i = 0; i < event.nT; i++) {
+        true_labels[i] = i/30; // 30 tracks per vertex. TODO: magic number bad
+    }
+
+    // debug print true labels and assignment
+    cout << "true labels: ";
+    for (int i = 0; i < true_labels.size(); i++) {
+        cout << true_labels[i] << " ";
+    }
+    cout << endl;
+
+    cout << "assignment: ";
+    for (int i = 0; i < assignment.size(); i++) {
+        cout << assignment[i] << " ";
+    }
+    cout << endl;
+
+    cout << "ARI: " << adjustedRandIndex(true_labels, assignment) << endl;
+}
+
+double ground_state(const QUBO &qubo, const event_t &event) {
+    solution_t solution(qubo.n, 0);
+
+    auto idx = [event](int track, int vertex) {
+        return track + event.nT * vertex;
+    };
+
+    for (int i = 0; i < event.nT; i++) {
+        int vertex = i / 30; // 30 tracks per vertex. TODO: magic number bad
+        solution[idx(i, vertex)] = 1;
+    }
+
+    return qubo.evaluate(solution);
+}
 
 // https://arxiv.org/pdf/1903.08879
 qubo_t event_to_qubo(const event_t &event) {
@@ -45,6 +82,7 @@ qubo_t event_to_qubo(const event_t &event) {
 
     auto g = [](double x, double m = 5) {
         // return 1.0 - exp(-m * x);
+        // return x + log(1.0 + x);
         return x;
     };
 
@@ -149,4 +187,93 @@ event_t loadTracks(string filename) {
     }
 
     return event_t{nVertices, (int) trackData.size(), trackData};
+}
+
+// thank you O1 for the ARI implementation
+
+inline double comb2(unsigned long x) {
+    return (x < 2) ? 0.0 : (static_cast<double>(x) * (x - 1)) / 2.0;
+}
+
+double adjustedRandIndex(const vector<int>& labels_true, const vector<int>& labels_pred) {
+    // 1. Basic sanity checks
+    if (labels_true.size() != labels_pred.size() || labels_true.empty()) {
+        return 0.0;
+    }
+    size_t N = labels_true.size();
+
+    // 2. Map each unique label to an index
+    unordered_map<int, int> true_label_to_index;
+    unordered_map<int, int> pred_label_to_index;
+    int next_true_index = 0;
+    int next_pred_index = 0;
+    
+    for (auto lbl : labels_true) {
+        if (true_label_to_index.find(lbl) == true_label_to_index.end()) {
+            true_label_to_index[lbl] = next_true_index++;
+        }
+    }
+    for (auto lbl : labels_pred) {
+        if (pred_label_to_index.find(lbl) == pred_label_to_index.end()) {
+            pred_label_to_index[lbl] = next_pred_index++;
+        }
+    }
+
+    int n_true_clusters = next_true_index;
+    int n_pred_clusters = next_pred_index;
+
+    // 3. Build the contingency table
+    vector<vector<unsigned long>> contingency(n_true_clusters, vector<unsigned long>(n_pred_clusters, 0ULL));
+    
+    for (size_t i = 0; i < N; ++i) {
+        int true_idx = true_label_to_index[labels_true[i]];
+        int pred_idx = pred_label_to_index[labels_pred[i]];
+        contingency[true_idx][pred_idx]++;
+    }
+
+    // 4. Compute row sums, column sums
+    vector<unsigned long> row_sums(n_true_clusters, 0ULL);
+    vector<unsigned long> col_sums(n_pred_clusters, 0ULL);
+
+    for (int i = 0; i < n_true_clusters; ++i) {
+        for (int j = 0; j < n_pred_clusters; ++j) {
+            row_sums[i] += contingency[i][j];
+            col_sums[j] += contingency[i][j];
+        }
+    }
+
+    // 5. Compute the components of ARI
+    double indexVal = 0.0L;
+    for (int i = 0; i < n_true_clusters; ++i) {
+        for (int j = 0; j < n_pred_clusters; ++j) {
+            indexVal += comb2(contingency[i][j]);
+        }
+    }
+
+    double sum_comb2_row = 0.0L;
+    for (int i = 0; i < n_true_clusters; ++i) {
+        sum_comb2_row += comb2(row_sums[i]);
+    }
+
+    double sum_comb2_col = 0.0L;
+    for (int j = 0; j < n_pred_clusters; ++j) {
+        sum_comb2_col += comb2(col_sums[j]);
+    }
+
+    double comb2N = comb2(N);
+    if (comb2N == 0.0L) {
+        return 0.0;
+    }
+
+    double expectedIndex = (sum_comb2_row * sum_comb2_col) / comb2N;
+    double maxIndex = 0.5L * (sum_comb2_row + sum_comb2_col);
+
+    double denominator = maxIndex - expectedIndex;
+    if (denominator < 1e-15L && denominator > -1e-15L) {
+        // Degenerate case
+        return 0.0;
+    }
+
+    double ARI = (indexVal - expectedIndex) / denominator;
+    return static_cast<double>(ARI);
 }
