@@ -84,6 +84,12 @@ qubo_t event_to_qubo(const event_t &event) {
         // return 1.0 - exp(-m * x);
         // return x + log(1.0 + x);
         return x;
+
+        // return 1.5 * (1.0 - exp(-m * x / 1.5));
+        // cout << x << '\n';
+        // return 1.0 - exp(-x);
+        // cout << 1.0 - exp(-x) << '\n';
+        // return 1.0 - exp(-x);
     };
 
     auto idx = [nT](int track, int vertex) {
@@ -91,21 +97,42 @@ qubo_t event_to_qubo(const event_t &event) {
     };
 
     double lambda = 1.2;
+    // double lambda = 2.0;
     // double lambda = 1.2;
 
     double max_D = 0.0;
+
+    // for (int k = 0; k < nV; ++k) {
+    //     for (int i = 0; i < nT; ++i) {
+    //         for (int j = i + 1; j < nT; ++j) {
+    //             double D_ij = D(trackData[i], trackData[j]);
+    //             max_D = max(max_D, D_ij);
+    //             qubo_map[{idx(i, k), idx(j, k)}] += g(D_ij);
+    //         }
+    //     }
+    // }
 
     for (int k = 0; k < nV; ++k) {
         for (int i = 0; i < nT; ++i) {
             for (int j = i + 1; j < nT; ++j) {
                 double D_ij = D(trackData[i], trackData[j]);
                 max_D = max(max_D, D_ij);
-                qubo_map[{idx(i, k), idx(j, k)}] += g(D_ij);
             }
         }
     }
 
-    lambda *= max_D;
+    for (int k = 0; k < nV; ++k) {
+        for (int i = 0; i < nT; ++i) {
+            for (int j = i + 1; j < nT; ++j) {
+                double D_ij = D(trackData[i], trackData[j]);
+                // qubo_map[{idx(i, k), idx(j, k)}] += g(D_ij);
+                qubo_map[{idx(i, k), idx(j, k)}] += g(D_ij/max_D);
+                // qubo_map[{idx(i, k), idx(j, k)}] += g(D_ij/max_D * 1.5);
+            }
+        }
+    }
+
+    // lambda *= max_D;
 
     // penalty
     for (int i = 0; i < nT; ++i) {

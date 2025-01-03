@@ -333,7 +333,9 @@ int run_vertexing(int argc, char *argv[]) {
     random_device rd;
     // unsigned seed = rd();
 
-    settings s = {.max_iter = 800000, .T_0 = 400.0,
+    settings s = {.max_iter = 800000,
+    .T_0 = 0.26,
+    // .T_0 = 400,
     // .temp_scheduler = make_geometric_scheduler(0.999999),
     .temp_scheduler = linear_scheduler,
     .seed = rd()};
