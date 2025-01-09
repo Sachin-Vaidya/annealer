@@ -74,18 +74,20 @@ qubo_t event_to_qubo(const event_t &event) {
     int nT = event.nT;
     const auto& trackData = event.trackData;
 
+    const double scale = 1.5;
+
     map<pair<int, int>, double> qubo_map;
 
     auto D = [](pair<double, double> i, pair<double, double> j) {
         return abs(i.first - j.first) / sqrt(i.second * i.second + j.second * j.second);
     };
 
-    auto g = [](double x, double m = 5) {
+    auto g = [scale](double x, double m = 5) {
         // return 1.0 - exp(-m * x);
         // return x + log(1.0 + x);
-        return x;
+        // return x;
 
-        // return 1.5 * (1.0 - exp(-m * x / 1.5));
+        return scale * (1.0 - exp(-m * x));
         // cout << x << '\n';
         // return 1.0 - exp(-x);
         // cout << 1.0 - exp(-x) << '\n';
@@ -96,8 +98,8 @@ qubo_t event_to_qubo(const event_t &event) {
         return track + nT * vertex;
     };
 
-    double lambda = 1.2;
-    // double lambda = 2.0;
+    // double lambda = 1.0;
+    double lambda = 2.0;
     // double lambda = 1.2;
 
     double max_D = 0.0;
@@ -126,8 +128,8 @@ qubo_t event_to_qubo(const event_t &event) {
             for (int j = i + 1; j < nT; ++j) {
                 double D_ij = D(trackData[i], trackData[j]);
                 // qubo_map[{idx(i, k), idx(j, k)}] += g(D_ij);
+                // qubo_map[{idx(i, k), idx(j, k)}] += g(D_ij/max_D);
                 qubo_map[{idx(i, k), idx(j, k)}] += g(D_ij/max_D);
-                // qubo_map[{idx(i, k), idx(j, k)}] += g(D_ij/max_D * 1.5);
             }
         }
     }

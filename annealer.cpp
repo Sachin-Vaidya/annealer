@@ -52,7 +52,7 @@ result sim_anneal(const QUBO& Q, const settings s, const solution_t init_guess =
 
     double T = s.T_0;
     for (int iter = 0; iter < s.max_iter; iter++) {
-        if (iter % 1000 == 0 && s.dolog) {
+        if (iter % 10000 == 0 && s.dolog) {
             cout << "Iter: " << iter << " Energy: " << best_f_x << " T: " << T << '\n';
         }
 
@@ -334,7 +334,7 @@ int run_vertexing(int argc, char *argv[]) {
     // unsigned seed = rd();
 
     settings s = {.max_iter = 800000,
-    .T_0 = 0.26,
+    .T_0 = 0.26*2,
     // .T_0 = 400,
     // .temp_scheduler = make_geometric_scheduler(0.999999),
     .temp_scheduler = linear_scheduler,
@@ -351,12 +351,12 @@ int run_vertexing(int argc, char *argv[]) {
 
     present_results(results, false);
 
-    // present_results(results);
     // s.max_iter *= 2;
     // s.temp_scheduler = linear_scheduler;
     // s.seed = rd();
     s.dolog = false;
     results = multithreaded_sim_anneal(Q, s, 8, 4); // threads, samples per thread
+    // results = multithreaded_sim_anneal(Q, s, 1, 1); // threads, samples per thread
 
     // best = results[0];
 
@@ -422,20 +422,24 @@ int main(int argc, char* argv[]) {
 //     //     {  0,  0,  1,  1, -2 }
 //     // });
 
-//     // qubo_t Q = condense({
-//     //     {-17, 10, 10, 10, 0, 20},
-//     //     {10, -18, 10, 10, 10, 20},
-//     //     {10, 10, -29, 10, 20, 20},
-//     //     {10, 10, 10, -19, 10, 10},
-//     //     {0, 10, 20, 10, -17, 10},
-//     //     {20, 20, 20, 10, 10, -28}
-//     // });
+//     ThreadPool pool(POOL_SIZE);
 
-//     auto t = "qubo.txt";
+//     qubo_t Q_1 = condense({
+//         {-17, 10, 10, 10, 0, 20},
+//         {10, -18, 10, 10, 10, 20},
+//         {10, 10, -29, 10, 20, 20},
+//         {10, 10, 10, -19, 10, 10},
+//         {0, 10, 20, 10, -17, 10},
+//         {20, 20, 20, 10, 10, -28}
+//     });
+
+//     auto Q = QUBO(Q_1, pool);
+
+//     // auto t = "qubo.txt";
 
 //     // t = "2v.json";
 
-//     auto Q = QUBO(parse_qubo(read_file(t)));
+//     // auto Q = QUBO(parse_qubo(read_file(t)));
 
 //     // auto Q = randgen_qubo(6000);
 
