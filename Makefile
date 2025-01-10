@@ -2,7 +2,7 @@
 
 # Compiler settings
 CXX = g++
-CXXFLAGS = -std=c++17 -Wall -pthread -Ofast
+CXXFLAGS = -march=native -Rpass=loop-vectorize -Rpass-missed=loop-vectorize -std=c++17 -Wall -pthread -Ofast 
 
 # Source files
 SRCS = annealer.cpp parser.cpp vertexing.cpp

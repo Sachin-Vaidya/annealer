@@ -39,7 +39,7 @@ result sim_anneal(const QUBO& Q, const settings s, const solution_t init_guess =
     uniform_int_distribution<> flip_dis(0, Q.n - 1);
 
     solution_t x(Q.n, 0);
-    for (auto xi : x) {
+    for (auto &xi : x) {
         xi = dis(gen) < 0.5 ? 0 : 1;
     }
 

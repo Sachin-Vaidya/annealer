@@ -20,7 +20,8 @@
 
 using namespace std;
 
-using solution_t = vector<bool>;
+// using solution_t = vector<bool>;
+using solution_t = vector<uint8_t>;
 // using qubo_t = map<pair<int, int>, double>;
 using qubo_t = vector<pair<pair<int, int>, double>>;
 using scheduler_t = function<double(double T_0, double T, int iter, int max_iter)>;
@@ -75,7 +76,12 @@ struct QUBO {
 
     double evaluateDiff(const solution_t& x, int flip_idx) const {
         double diff = 0.0; // first, find what would be the value if this bit was on
-        for (const auto& [j, Q_ij] : affectedby[flip_idx]) if (x[j] || j == flip_idx) diff += Q_ij;
+// #pragma clang loop vectorize_width(2)
+// #pragma clang loop interleave_count(2)
+        for (const auto& [j, Q_ij] : affectedby[flip_idx])
+            // if (x[j] || j == flip_idx) diff += Q_ij;
+            // diff += Q_ij * static_cast<double>( (j == flip_idx) || x[j] );
+            diff += (x[j] || j == flip_idx) * Q_ij;
         return x[flip_idx] ? -diff : diff; // if on, turn off. if off, turn on.
     }
 
