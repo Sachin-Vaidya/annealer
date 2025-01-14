@@ -1,4 +1,5 @@
 #include "vertexing.hh"
+#include "detanneal.hh"
 // #include <execution>
 // #include <numeric>
 #include <algorithm>
@@ -309,6 +310,8 @@ int run_vertexing(int argc, char *argv[]) {
     string filename = argv[1];
     event_t event = loadTracks(filename);
 
+    // event_t event = loadTracks("/Users/ishan/event_tests/events_65V_30T_2.json");
+
     cout << "Loaded " << event.nT << " tracks\n";
     cout << "Loaded " << event.nV << " vertices\n";
     // for (int i = 0; i < trackData.trackData.size(); i++) {
@@ -343,7 +346,7 @@ int run_vertexing(int argc, char *argv[]) {
     vector<result> results;
     result best;
 
-    results = branch_rejoin_sa(Q, s, 8, 4, 4); // threads, branches, samples per thread
+    results = branch_rejoin_sa(Q, s, 8, 4, 1); // threads, branches, samples per thread
 
     best = results[0];
 
@@ -355,7 +358,7 @@ int run_vertexing(int argc, char *argv[]) {
     // s.temp_scheduler = linear_scheduler;
     // s.seed = rd();
     s.dolog = false;
-    results = multithreaded_sim_anneal(Q, s, 8, 4); // threads, samples per thread
+    results = multithreaded_sim_anneal(Q, s, 8, 1); // threads, samples per thread
     // results = multithreaded_sim_anneal(Q, s, 1, 1); // threads, samples per thread
 
     // best = results[0];
@@ -403,6 +406,12 @@ int run_vertexing(int argc, char *argv[]) {
     cout << "Best energy: " << best.energy << '\n';
     cout << "ratio: " << best.energy / ground << '\n';
     cout << "diff: " << best.energy - ground << '\n';
+
+    cout << "running da\n";
+
+    auto da_assignment = runDA(event);
+
+    print_score(da_assignment, event);
 
     return 0;
 }

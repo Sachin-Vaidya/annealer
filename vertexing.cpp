@@ -99,7 +99,7 @@ qubo_t event_to_qubo(const event_t &event) {
     };
 
     // double lambda = 1.0;
-    double lambda = 2.0;
+    double lambda = 2;
     // double lambda = 1.2;
 
     double max_D = 0.0;
