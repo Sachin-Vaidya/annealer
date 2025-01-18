@@ -30,6 +30,17 @@ vector<int> interpret(const solution_t &solution, const int nT, const int nV) {
     return assignment;
 }
 
+double energy_from_assignment(const vector<int> &assignment, const QUBO &qubo, const int nT, const int nV) {
+    solution_t solution(qubo.n, 0);
+
+    for (int i = 0; i < assignment.size(); i++) {
+        int vertex = assignment[i];
+        solution[i + nT * vertex] = 1;
+    }
+
+    return qubo.evaluate(solution);
+}
+
 void print_score(const vector<int> &assignment, const event_t &event) {
     // print the ARI score of the assignment
     vector<int> true_labels(event.nT);

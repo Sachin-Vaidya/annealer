@@ -33,6 +33,11 @@ using event_t = struct {
     vector<pair<double, double>> trackData; // z position, error
 };
 
+struct problem_context {
+    int nT;
+    int nV;
+};
+
 inline int qubo_size(const qubo_t& Q) {
     int n = 0;
     for (const auto& entry : Q) {
@@ -150,3 +155,4 @@ double adjustedRandIndex(const vector<int> &a, const vector<int> &b);
 void print_score(const vector<int> &assignment, const event_t &event);
 
 double ground_state(const QUBO &qubo, const event_t &event);
+double energy_from_assignment(const vector<int> &assignment, const QUBO &qubo, const int nT, const int nV);

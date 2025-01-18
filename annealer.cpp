@@ -24,6 +24,7 @@ struct settings {
     double T_0;
     scheduler_t temp_scheduler;
     unsigned seed;
+    problem_context context;
     bool dolog = true;
 };
 
@@ -32,19 +33,44 @@ struct result {
     double energy;
 };
 
+// sim anneal but problem specific!!
 result sim_anneal(const QUBO& Q, const settings s, const solution_t init_guess = {}) { // intentionally get copy of settings
     // int n = qubo_size(Q);
 
     mt19937 gen(s.seed);
     uniform_real_distribution<> dis(0.0, 1.0);
-    uniform_int_distribution<> flip_dis(0, Q.n - 1);
+    // uniform_int_distribution<> flip_dis(0, Q.n - 1);
+
+    uniform_int_distribution<> t_dis(0, s.context.nT - 1);
+    uniform_int_distribution<> v_dis(0, s.context.nV - 1);
 
     solution_t x(Q.n, 0);
-    for (auto &xi : x) {
-        xi = dis(gen) < 0.5 ? 0 : 1;
+    // for (auto &xi : x) {
+    //     xi = dis(gen) < 0.5 ? 0 : 1;
+    // }
+
+    auto bit_idx = [s](int t, int v) {
+        return t + s.context.nT * v;
+    };
+
+    // helper.
+    vector<int> track_to_vertex(s.context.nT, -1);
+
+    // for each track, assign random vertex
+    for (int t = 0; t < s.context.nT; t++) {
+        int v = v_dis(gen);
+        track_to_vertex[t] = v;
+        x[bit_idx(t, v)] = 1;
     }
 
-    if (!init_guess.empty()) x = init_guess;
+    // for (int t = 0; t < s.context.nT; t++) {
+    //     assert(x[bit_idx(t, track_to_vertex[t])] == 1);
+    // }
+
+    if (!init_guess.empty()) {
+        x = init_guess;
+        cout << "Using init guess\n";
+    }
 
     double f_x = Q.evaluate(x);
 
@@ -54,19 +80,39 @@ result sim_anneal(const QUBO& Q, const settings s, const solution_t init_guess =
     double T = s.T_0;
     for (int iter = 0; iter < s.max_iter; iter++) {
         if (iter % 10000 == 0 && s.dolog) {
-            cout << "Iter: " << iter << " Energy: " << best_f_x << " T: " << T << '\n';
+            cout << "Iter: " << iter << " Energy: " << f_x << " T: " << T << '\n';
         }
+        // int flip_idx = flip_dis(gen);
+
+        // double f_x_prime = Q.evaluateDiff(x, flip_idx) + f_x;
+
+        // x_prime[flip_idx] = !x_prime[flip_idx];
+
+        int t = t_dis(gen); // pick random track to change vertex of
+        int old_v = track_to_vertex[t];
+        int new_v = v_dis(gen); // pick random new vertex for track
+
+        // if (old_v == new_v) continue;
+
+        int old_bit = bit_idx(t, old_v);
+        // assert(x[old_bit] == 1);
+
+        // cout << (int) x[old_bit] << '\n';
+
+        int new_bit = bit_idx(t, new_v);
 
         solution_t x_prime = x;
-        int flip_idx = flip_dis(gen);
+        double delta = Q.evaluateDiff(x_prime, old_bit);
+        x_prime[old_bit] = 0;
+        delta += Q.evaluateDiff(x_prime, new_bit);
+        x_prime[new_bit] = 1;
 
-        double f_x_prime = Q.evaluateDiff(x, flip_idx) + f_x;
-
-        x_prime[flip_idx] = !x_prime[flip_idx];
+        double f_x_prime = f_x + delta;
 
         if (f_x_prime < f_x || dis(gen) < exp((f_x - f_x_prime) / T)) {
             x = x_prime;
             f_x = f_x_prime;
+            track_to_vertex[t] = new_v;
         }
 
         if (f_x < best_f_x) {
@@ -337,31 +383,32 @@ int run_vertexing(int argc, char *argv[]) {
     // unsigned seed = rd();
 
     settings s = {.max_iter = 800000,
-    .T_0 = 0.26*2,
+    .T_0 = 0.26*2/2,
     // .T_0 = 400,
     // .temp_scheduler = make_geometric_scheduler(0.999999),
+    .context = {.nT = event.nT, .nV = event.nV},
     .temp_scheduler = linear_scheduler,
     .seed = rd()};
 
     vector<result> results;
     result best;
 
-    results = branch_rejoin_sa(Q, s, 8, 4, 1); // threads, branches, samples per thread
+    // results = branch_rejoin_sa(Q, s, 8, 4, 1); // threads, branches, samples per thread
 
-    best = results[0];
+    // best = results[0];
 
-    cout << "\nBranch rejoin (approach B) results: " << '\n';
+    // cout << "\nBranch rejoin (approach B) results: " << '\n';
 
-    present_results(results, false);
+    // present_results(results, false);
 
     // s.max_iter *= 2;
     // s.temp_scheduler = linear_scheduler;
     // s.seed = rd();
-    s.dolog = false;
-    results = multithreaded_sim_anneal(Q, s, 8, 1); // threads, samples per thread
-    // results = multithreaded_sim_anneal(Q, s, 1, 1); // threads, samples per thread
-
-    // best = results[0];
+    // s.dolog = false;
+    // results = multithreaded_sim_anneal(Q, s, 8, 1); // threads, samples per thread
+    
+    results = multithreaded_sim_anneal(Q, s, 1, 1); // threads, samples per thread
+    best = results[0];
 
     if (results[0].energy < best.energy) {
         cout << "choosing multithreaded result\n";
@@ -409,9 +456,16 @@ int run_vertexing(int argc, char *argv[]) {
 
     cout << "running da\n";
 
-    auto da_assignment = runDA(event);
+    vector<int> da_assignment = runDA(event);
 
     print_score(da_assignment, event);
+
+    double da_energy = energy_from_assignment(da_assignment, Q, event.nT, event.nV);
+
+    cout << "Ground state: " << ground << '\n';
+    cout << "DA energy: " << da_energy << '\n';
+    cout << "ratio: " << da_energy / ground << '\n';
+    cout << "diff: " << da_energy - ground << '\n';
 
     return 0;
 }
