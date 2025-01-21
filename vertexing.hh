@@ -22,15 +22,16 @@
 
 using namespace std;
 
+using ftype = float;
 // using solution_t = vector<bool>;
 using solution_t = vector<uint8_t>;
-// using qubo_t = map<pair<int, int>, double>;
-using qubo_t = vector<pair<pair<int, int>, double>>;
-using scheduler_t = function<double(double T_0, double T, int iter, int max_iter)>;
+// using qubo_t = map<pair<int, int>, ftype>;
+using qubo_t = vector<pair<pair<int, int>, ftype>>;
+using scheduler_t = function<ftype(ftype T_0, ftype T, int iter, int max_iter)>;
 using event_t = struct {
     int nV;
     int nT;
-    vector<pair<double, double>> trackData; // z position, error
+    vector<pair<ftype, ftype>> trackData; // z position, error
 };
 
 struct problem_context {
@@ -50,7 +51,7 @@ struct QUBO {
     int n;
     qubo_t Q;
     // todo: more memory efficient data structure?
-    vector<vector<pair<int, double>>> affectedby; // list of js that are affected by flipping a certain bit
+    vector<vector<pair<int, ftype>>> affectedby; // list of js that are affected by flipping a certain bit
 
     ThreadPool& threadPool;
 
@@ -74,26 +75,26 @@ struct QUBO {
         }
     }
 
-    double evaluate(const solution_t& x) const {
-        double value = 0.0;
+    ftype evaluate(const solution_t& x) const {
+        ftype value = 0.0;
         for (const auto& [idx, val] : Q)
             if (x[idx.first] && x[idx.second]) value += val;
         return value;
     }
 
-    double evaluateDiff(const solution_t& x, int flip_idx) const {
-        double diff = 0.0; // first, find what would be the value if this bit was on
+    ftype evaluateDiff(const solution_t& x, int flip_idx) const {
+        ftype diff = 0.0; // first, find what would be the value if this bit was on
 // #pragma clang loop vectorize_width(2)
 // #pragma clang loop interleave_count(2)
         for (const auto& [j, Q_ij] : affectedby[flip_idx])
             // if (x[j] || j == flip_idx) diff += Q_ij;
-            // diff += Q_ij * static_cast<double>( (j == flip_idx) || x[j] );
+            // diff += Q_ij * static_cast<ftype>( (j == flip_idx) || x[j] );
             diff += (x[j] || j == flip_idx) * Q_ij;
         return x[flip_idx] ? -diff : diff; // if on, turn off. if off, turn on.
     }
 
 
-    // double evaluateDiff(const solution_t& x, int flip_idx) const {
+    // ftype evaluateDiff(const solution_t& x, int flip_idx) const {
     //     const auto& affected = affectedby[flip_idx];
     //     // TODO: make sure same as num threads in pool.
     //     int num_threads = POOL_SIZE; 
@@ -101,16 +102,16 @@ struct QUBO {
 
     //     if (chunk_size == 0) {
     //         // just do sequential
-    //         double diff = 0.0;
+    //         ftype diff = 0.0;
     //         for (auto & kv : affected) {
     //             const int j = kv.first;
-    //             const double Q_ij = kv.second;
+    //             const ftype Q_ij = kv.second;
     //             if (x[j] || j == flip_idx) diff += Q_ij;
     //         }
     //         return x[flip_idx] ? -diff : diff;
     //     }
 
-    //     vector<future<double>> futures;
+    //     vector<future<ftype>> futures;
     //     futures.reserve(num_threads);
 
     //     for (int t = 0; t < num_threads; t++) {
@@ -119,7 +120,7 @@ struct QUBO {
     //         if (start >= (int) affected.size()) break;
 
     //         futures.push_back(threadPool.enqueue([&affected, &x, flip_idx, start, end]() {
-    //             double local_sum = 0.0;
+    //             ftype local_sum = 0.0;
     //             for (int i = start; i < end; i++) {
     //                 const auto& [j, Q_ij] = affected[i];
     //                 if (x[j] || j == flip_idx) local_sum += Q_ij;
@@ -128,7 +129,7 @@ struct QUBO {
     //         }));
     //     }
 
-    //     double total_diff = 0.0;
+    //     ftype total_diff = 0.0;
     //     for (auto &f : futures) {
     //         total_diff += f.get();
     //     }
@@ -151,8 +152,8 @@ vector<int> interpret(const solution_t &solution, const int nT, const int nV);
 int run_vertexing(int argc, char* argv[]);
 event_t loadTracks(string filename);
 qubo_t event_to_qubo(const event_t &event);
-double adjustedRandIndex(const vector<int> &a, const vector<int> &b);
+ftype adjustedRandIndex(const vector<int> &a, const vector<int> &b);
 void print_score(const vector<int> &assignment, const event_t &event);
 
-double ground_state(const QUBO &qubo, const event_t &event);
-double energy_from_assignment(const vector<int> &assignment, const QUBO &qubo, const int nT, const int nV);
+ftype ground_state(const QUBO &qubo, const event_t &event);
+ftype energy_from_assignment(const vector<int> &assignment, const QUBO &qubo, const int nT, const int nV);

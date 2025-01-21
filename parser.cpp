@@ -6,11 +6,12 @@
 #include <vector>
 
 #include "parser.hh"
+#include "vertexing.hh"
 
 using namespace std;
 
-vector<pair<pair<int, int>, double>> parse_qubo(const string& input) {
-    vector<pair<pair<int, int>, double>> result;
+vector<pair<pair<int, int>, ftype>> parse_qubo(const string& input) {
+    vector<pair<pair<int, int>, ftype>> result;
 
     string cleanInput = input.substr(1, input.size() - 2); // Strip the outermost brackets
     stringstream ss(cleanInput);
@@ -23,7 +24,7 @@ vector<pair<pair<int, int>, double>> parse_qubo(const string& input) {
         if (closingBracketPos == string::npos) continue;
         
         int x, y;
-        double value;
+        ftype value;
         char foo; // to consume random characters in the input
         stringstream s(pairEntry);
 

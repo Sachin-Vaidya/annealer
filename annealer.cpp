@@ -21,7 +21,7 @@ ostream& operator << (ostream& os, const qubo_t& Q) {
 
 struct settings {
     int max_iter;
-    double T_0;
+    ftype T_0;
     scheduler_t temp_scheduler;
     unsigned seed;
     problem_context context;
@@ -30,7 +30,7 @@ struct settings {
 
 struct result {
     solution_t solution;
-    double energy;
+    ftype energy;
 };
 
 // sim anneal but problem specific!!
@@ -72,19 +72,19 @@ result sim_anneal(const QUBO& Q, const settings s, const solution_t init_guess =
         cout << "Using init guess\n";
     }
 
-    double f_x = Q.evaluate(x);
+    ftype f_x = Q.evaluate(x);
 
     solution_t best_x = x;
-    double best_f_x = f_x;
+    ftype best_f_x = f_x;
 
-    double T = s.T_0;
+    ftype T = s.T_0;
     for (int iter = 0; iter < s.max_iter; iter++) {
         if (iter % 10000 == 0 && s.dolog) {
             cout << "Iter: " << iter << " Energy: " << f_x << " T: " << T << '\n';
         }
         // int flip_idx = flip_dis(gen);
 
-        // double f_x_prime = Q.evaluateDiff(x, flip_idx) + f_x;
+        // ftype f_x_prime = Q.evaluateDiff(x, flip_idx) + f_x;
 
         // x_prime[flip_idx] = !x_prime[flip_idx];
 
@@ -102,12 +102,12 @@ result sim_anneal(const QUBO& Q, const settings s, const solution_t init_guess =
         int new_bit = bit_idx(t, new_v);
 
         solution_t x_prime = x;
-        double delta = Q.evaluateDiff(x_prime, old_bit);
+        ftype delta = Q.evaluateDiff(x_prime, old_bit);
         x_prime[old_bit] = 0;
         delta += Q.evaluateDiff(x_prime, new_bit);
         x_prime[new_bit] = 1;
 
-        double f_x_prime = f_x + delta;
+        ftype f_x_prime = f_x + delta;
 
         if (f_x_prime < f_x || dis(gen) < exp((f_x - f_x_prime) / T)) {
             x = x_prime;
@@ -250,12 +250,12 @@ vector<result> branch_rejoin_sa(const QUBO& Q, const settings s, int num_threads
     return results;
 }
 
-double linear_scheduler(double T_0, double T, int iter, int max_iter) {
+ftype linear_scheduler(ftype T_0, ftype T, int iter, int max_iter) {
     return T_0 - (T_0 / max_iter) * iter;
 }
 
-scheduler_t make_geometric_scheduler(double alpha) {
-    return [alpha](double T_0, double T, int iter, int max_iter) {
+scheduler_t make_geometric_scheduler(ftype alpha) {
+    return [alpha](ftype T_0, ftype T, int iter, int max_iter) {
         return T * alpha;
     };
 }
@@ -268,11 +268,11 @@ void trial(solution_t x, const QUBO& Q) {
 
 void present_results(const vector<result>& results, bool show_sols = true, int precision = 5) {
     map<long, map<solution_t, int>> counts; // energy -> solution -> count
-    auto d_to_l = [precision](double d) {
+    auto d_to_l = [precision](ftype d) {
         return static_cast<long>(round(d * pow(10, precision)));
     };
     auto l_to_d = [precision](long l) {
-        return static_cast<double>(l) / pow(10, precision);
+        return static_cast<ftype>(l) / pow(10, precision);
     };
 
     for (const auto& r : results) {
@@ -303,7 +303,7 @@ void present_results(const vector<result>& results, bool show_sols = true, int p
     }
 }
 
-qubo_t condense(vector<vector<double>> sparse) {
+qubo_t condense(vector<vector<ftype>> sparse) {
     qubo_t dense;
 
     if (sparse.size() != sparse[0].size()) {
@@ -323,9 +323,9 @@ qubo_t condense(vector<vector<double>> sparse) {
     return dense;
 }
 
-vector<vector<double>> sparsen(const qubo_t& dense) {
+vector<vector<ftype>> sparsen(const qubo_t& dense) {
     int n = qubo_size(dense);
-    vector<vector<double>> sparse(n, vector<double>(n, 0.0));
+    vector<vector<ftype>> sparse(n, vector<ftype>(n, 0.0));
     for (const auto& entry : dense) {
         sparse[entry.first.first][entry.first.second] = entry.second;
     }
@@ -382,8 +382,9 @@ int run_vertexing(int argc, char *argv[]) {
     random_device rd;
     // unsigned seed = rd();
 
-    settings s = {.max_iter = 800000,
-    .T_0 = 0.26*2/2,
+    settings s = {.max_iter = 8000000,
+    // .T_0 = 0.26*2,///10000000,
+    .T_0 = 0,
     // .T_0 = 400,
     // .temp_scheduler = make_geometric_scheduler(0.999999),
     .context = {.nT = event.nT, .nV = event.nV},
@@ -407,7 +408,7 @@ int run_vertexing(int argc, char *argv[]) {
     // s.dolog = false;
     // results = multithreaded_sim_anneal(Q, s, 8, 1); // threads, samples per thread
     
-    results = multithreaded_sim_anneal(Q, s, 1, 1); // threads, samples per thread
+    results = multithreaded_sim_anneal(Q, s, 8, 1); // threads, samples per thread
     best = results[0];
 
     if (results[0].energy < best.energy) {
@@ -447,7 +448,7 @@ int run_vertexing(int argc, char *argv[]) {
 
     print_score(assignment, event);
 
-    double ground = ground_state(Q, event);
+    ftype ground = ground_state(Q, event);
 
     cout << "Ground state: " << ground << '\n';
     cout << "Best energy: " << best.energy << '\n';
@@ -460,7 +461,7 @@ int run_vertexing(int argc, char *argv[]) {
 
     print_score(da_assignment, event);
 
-    double da_energy = energy_from_assignment(da_assignment, Q, event.nT, event.nV);
+    ftype da_energy = energy_from_assignment(da_assignment, Q, event.nT, event.nV);
 
     cout << "Ground state: " << ground << '\n';
     cout << "DA energy: " << da_energy << '\n';
@@ -475,7 +476,7 @@ int main(int argc, char* argv[]) {
 }
 
 // int main() {
-//     // cout << fixed << setprecision(numeric_limits<double>::max_digits10);
+//     // cout << fixed << setprecision(numeric_limits<ftype>::max_digits10);
 //     // cout << fixed << setprecision(5);
 //     // qubo_t Q = condense({
 //     //     { -2,  1,  1,  0,  0 },

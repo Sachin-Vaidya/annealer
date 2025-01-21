@@ -30,7 +30,7 @@ vector<int> interpret(const solution_t &solution, const int nT, const int nV) {
     return assignment;
 }
 
-double energy_from_assignment(const vector<int> &assignment, const QUBO &qubo, const int nT, const int nV) {
+ftype energy_from_assignment(const vector<int> &assignment, const QUBO &qubo, const int nT, const int nV) {
     solution_t solution(qubo.n, 0);
 
     for (int i = 0; i < assignment.size(); i++) {
@@ -64,7 +64,7 @@ void print_score(const vector<int> &assignment, const event_t &event) {
     cout << "ARI: " << adjustedRandIndex(true_labels, assignment) << endl;
 }
 
-double ground_state(const QUBO &qubo, const event_t &event) {
+ftype ground_state(const QUBO &qubo, const event_t &event) {
     solution_t solution(qubo.n, 0);
 
     auto idx = [event](int track, int vertex) {
@@ -85,15 +85,15 @@ qubo_t event_to_qubo(const event_t &event) {
     int nT = event.nT;
     const auto& trackData = event.trackData;
 
-    const double scale = 1.5;
+    const ftype scale = 1.5;
 
-    map<pair<int, int>, double> qubo_map;
+    map<pair<int, int>, ftype> qubo_map;
 
-    auto D = [](pair<double, double> i, pair<double, double> j) {
+    auto D = [](pair<ftype, ftype> i, pair<ftype, ftype> j) {
         return abs(i.first - j.first) / sqrt(i.second * i.second + j.second * j.second);
     };
 
-    auto g = [scale](double x, double m = 5) {
+    auto g = [scale](ftype x, ftype m = 5) {
         // return 1.0 - exp(-m * x);
         // return x + log(1.0 + x);
         // return x;
@@ -109,16 +109,16 @@ qubo_t event_to_qubo(const event_t &event) {
         return track + nT * vertex;
     };
 
-    // double lambda = 1.0;
-    double lambda = 2;
-    // double lambda = 1.2;
+    // ftype lambda = 1.0;
+    ftype lambda = 2;
+    // ftype lambda = 1.2;
 
-    double max_D = 0.0;
+    ftype max_D = 0.0;
 
     // for (int k = 0; k < nV; ++k) {
     //     for (int i = 0; i < nT; ++i) {
     //         for (int j = i + 1; j < nT; ++j) {
-    //             double D_ij = D(trackData[i], trackData[j]);
+    //             ftype D_ij = D(trackData[i], trackData[j]);
     //             max_D = max(max_D, D_ij);
     //             qubo_map[{idx(i, k), idx(j, k)}] += g(D_ij);
     //         }
@@ -128,16 +128,18 @@ qubo_t event_to_qubo(const event_t &event) {
     for (int k = 0; k < nV; ++k) {
         for (int i = 0; i < nT; ++i) {
             for (int j = i + 1; j < nT; ++j) {
-                double D_ij = D(trackData[i], trackData[j]);
+                ftype D_ij = D(trackData[i], trackData[j]);
                 max_D = max(max_D, D_ij);
             }
         }
     }
 
+    // int num_nonzero = 0;
+
     for (int k = 0; k < nV; ++k) {
         for (int i = 0; i < nT; ++i) {
             for (int j = i + 1; j < nT; ++j) {
-                double D_ij = D(trackData[i], trackData[j]);
+                ftype D_ij = D(trackData[i], trackData[j]);
                 // qubo_map[{idx(i, k), idx(j, k)}] += g(D_ij);
                 // qubo_map[{idx(i, k), idx(j, k)}] += g(D_ij/max_D);
                 qubo_map[{idx(i, k), idx(j, k)}] += g(D_ij/max_D);
@@ -158,6 +160,10 @@ qubo_t event_to_qubo(const event_t &event) {
     }
 
     qubo_t qubo(qubo_map.begin(), qubo_map.end());
+
+    cout << "qubo num terms: " << qubo.size() << '\n';
+    cout << "max possible: " << nT * nV * nT * nV << '\n';
+
     return qubo;
 }
 
@@ -168,8 +174,8 @@ event_t loadTracks(string filename) {
     string line;
     getline(trackFile, line);
 
-    vector<pair<double, double>> trackData;
-    vector<double> vertices;
+    vector<pair<ftype, ftype>> trackData;
+    vector<ftype> vertices;
 
     int nVertices = 0;
 
@@ -210,10 +216,10 @@ event_t loadTracks(string filename) {
             currentPos = trackDataStr.find(trackArrayBeginStr) + trackArrayBeginStr.length();
 
             string track_x = trackDataStr.substr(currentPos, trackDataStr.find(trackErrorDelimiter) - currentPos);
-            double x = stod(track_x);
+            ftype x = stod(track_x);
             string track_errorx = trackDataStr.substr(trackDataStr.find(trackErrorDelimiter) + trackErrorDelimiter.length(),
                                                       trackDataStr.find(trackDelimiter, currentPos) - (trackDataStr.find(trackErrorDelimiter) + trackErrorDelimiter.length()));
-            double errorx = stod(track_errorx);
+            ftype errorx = stod(track_errorx);
 
             trackData.emplace_back(x, errorx);
 
@@ -231,11 +237,11 @@ event_t loadTracks(string filename) {
 
 // thank you O1 for the ARI implementation
 
-inline double comb2(unsigned long x) {
-    return (x < 2) ? 0.0 : (static_cast<double>(x) * (x - 1)) / 2.0;
+inline ftype comb2(unsigned long x) {
+    return (x < 2) ? 0.0 : (static_cast<ftype>(x) * (x - 1)) / 2.0;
 }
 
-double adjustedRandIndex(const vector<int>& labels_true, const vector<int>& labels_pred) {
+ftype adjustedRandIndex(const vector<int>& labels_true, const vector<int>& labels_pred) {
     // 1. Basic sanity checks
     if (labels_true.size() != labels_pred.size() || labels_true.empty()) {
         return 0.0;
@@ -283,37 +289,37 @@ double adjustedRandIndex(const vector<int>& labels_true, const vector<int>& labe
     }
 
     // 5. Compute the components of ARI
-    double indexVal = 0.0L;
+    ftype indexVal = 0.0L;
     for (int i = 0; i < n_true_clusters; ++i) {
         for (int j = 0; j < n_pred_clusters; ++j) {
             indexVal += comb2(contingency[i][j]);
         }
     }
 
-    double sum_comb2_row = 0.0L;
+    ftype sum_comb2_row = 0.0L;
     for (int i = 0; i < n_true_clusters; ++i) {
         sum_comb2_row += comb2(row_sums[i]);
     }
 
-    double sum_comb2_col = 0.0L;
+    ftype sum_comb2_col = 0.0L;
     for (int j = 0; j < n_pred_clusters; ++j) {
         sum_comb2_col += comb2(col_sums[j]);
     }
 
-    double comb2N = comb2(N);
+    ftype comb2N = comb2(N);
     if (comb2N == 0.0L) {
         return 0.0;
     }
 
-    double expectedIndex = (sum_comb2_row * sum_comb2_col) / comb2N;
-    double maxIndex = 0.5L * (sum_comb2_row + sum_comb2_col);
+    ftype expectedIndex = (sum_comb2_row * sum_comb2_col) / comb2N;
+    ftype maxIndex = 0.5L * (sum_comb2_row + sum_comb2_col);
 
-    double denominator = maxIndex - expectedIndex;
+    ftype denominator = maxIndex - expectedIndex;
     if (denominator < 1e-15L && denominator > -1e-15L) {
         // Degenerate case
         return 0.0;
     }
 
-    double ARI = (indexVal - expectedIndex) / denominator;
-    return static_cast<double>(ARI);
+    ftype ARI = (indexVal - expectedIndex) / denominator;
+    return static_cast<ftype>(ARI);
 }

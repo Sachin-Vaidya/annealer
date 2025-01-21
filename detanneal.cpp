@@ -16,13 +16,13 @@
 
 using namespace std;
 
-double getDistortion(double& x, double& errorX, double& y) {
-	double sigma = (x - y) / errorX;
+ftype getDistortion(ftype& x, ftype& errorX, ftype& y) {
+	ftype sigma = (x - y) / errorX;
 	return sigma * sigma;
 }
 
-double getClusterProbability(int& j, const int& N, vector<vector<double>>& associationMatrix) {
-	double probability = 0.0;
+ftype getClusterProbability(int& j, const int& N, vector<vector<ftype>>& associationMatrix) {
+	ftype probability = 0.0;
 	for (int i = 0; i < N; ++i) {
 		probability += associationMatrix[j][i];
 	}
@@ -30,12 +30,12 @@ double getClusterProbability(int& j, const int& N, vector<vector<double>>& assoc
 	return probability;
 }
 
-vector<double> getCriticalTemperatures(vector<double>& X, vector<double>& errorX, vector<double>& Y, vector<vector<double>>& associationMatrix, const int& N) {
-	vector<double> criticalTemperatures = {};
+vector<ftype> getCriticalTemperatures(vector<ftype>& X, vector<ftype>& errorX, vector<ftype>& Y, vector<vector<ftype>>& associationMatrix, const int& N) {
+	vector<ftype> criticalTemperatures = {};
 	for (int j = 0; j < Y.size(); ++j) {
-		double prob_y = getClusterProbability(j, N, associationMatrix);
+		ftype prob_y = getClusterProbability(j, N, associationMatrix);
 
-		double criticalTemperature = 0;
+		ftype criticalTemperature = 0;
 		for (int i = 0; i < N; ++i) {
 			criticalTemperature += associationMatrix[j][i] * getDistortion(X[i], errorX[i], Y[j]) / prob_y;
 		}
@@ -46,14 +46,14 @@ vector<double> getCriticalTemperatures(vector<double>& X, vector<double>& errorX
 	return criticalTemperatures;
 }
 
-bool merge(vector<double>& Y, vector<double>& X, vector<double>& errorX, vector<double>& clusterProbabilities, vector<vector<double>>& associationMatrix, double& T, const int& N) {
+bool merge(vector<ftype>& Y, vector<ftype>& X, vector<ftype>& errorX, vector<ftype>& clusterProbabilities, vector<vector<ftype>>& associationMatrix, ftype& T, const int& N) {
 	for (int j = 0; (j + 1) < Y.size(); ++j) {
 		for (int k = j + 1; k < Y.size(); ++k) {
 			if (fabs(Y[j] - Y[k]) < 0.002) { // Need to merge
 				// First check to make sure that the merged critical temperature isn't higher than current temperature
-				double totalProbability = clusterProbabilities[j] + clusterProbabilities[k];
+				ftype totalProbability = clusterProbabilities[j] + clusterProbabilities[k];
 
-				double newCentroid = 0.0;
+				ftype newCentroid = 0.0;
 				if (totalProbability > 0) {
 					newCentroid = (clusterProbabilities[j] * Y[j] + clusterProbabilities[k] * Y[k]) / totalProbability;
 				}
@@ -61,7 +61,7 @@ bool merge(vector<double>& Y, vector<double>& X, vector<double>& errorX, vector<
 					newCentroid = 0.5 * (Y[j] + Y[k]);
 				}
 
-				double newCriticalTemp = 0.0;
+				ftype newCriticalTemp = 0.0;
 				for (int i = 0; i < N; ++i) {
 					newCriticalTemp += (associationMatrix[j][i] + associationMatrix[k][i]) * getDistortion(X[i], errorX[i], newCentroid) / totalProbability;
 				}
@@ -91,19 +91,19 @@ bool merge(vector<double>& Y, vector<double>& X, vector<double>& errorX, vector<
 	return false;
 }
 
-double getPartitionFunction(double& x, double& errorx, vector<double>& Y, double& T, vector<double>& clusterProbabilities, vector<double>& partitionComponents) {
-	double partition_func = 0.0;
+ftype getPartitionFunction(ftype& x, ftype& errorx, vector<ftype>& Y, ftype& T, vector<ftype>& clusterProbabilities, vector<ftype>& partitionComponents) {
+	ftype partition_func = 0.0;
 	for (int i = 0; i < Y.size(); ++i) {
-		double partitionComponent = clusterProbabilities[i] * exp(-1 * getDistortion(x, errorx, Y[i]) / T);
+		ftype partitionComponent = clusterProbabilities[i] * exp(-1 * getDistortion(x, errorx, Y[i]) / T);
 		partitionComponents.push_back(partitionComponent);
 		partition_func += partitionComponent;
 	}
 	return partition_func;
 }
 
-void updateAssociationProbabilityMatrix(vector<vector<double>>& associationMatrix, vector<double>& X, vector<double>& errorX, vector<double>& Y, double& T, const int& N, vector<double>& clusterProbabilities, vector<double>& partitionComponents) {
+void updateAssociationProbabilityMatrix(vector<vector<ftype>>& associationMatrix, vector<ftype>& X, vector<ftype>& errorX, vector<ftype>& Y, ftype& T, const int& N, vector<ftype>& clusterProbabilities, vector<ftype>& partitionComponents) {
 	for (int i = 0; i < N; ++i) {
-		double partitionFunc = getPartitionFunction(X[i], errorX[i], Y, T, clusterProbabilities, partitionComponents);
+		ftype partitionFunc = getPartitionFunction(X[i], errorX[i], Y, T, clusterProbabilities, partitionComponents);
 		for (int j = 0; j < Y.size(); ++j) {
 			associationMatrix[j][i] = partitionComponents[j] / partitionFunc;
 		}
@@ -111,8 +111,8 @@ void updateAssociationProbabilityMatrix(vector<vector<double>>& associationMatri
 	}
 }
 
-double getCentroid(vector<double>& X, vector<double>& jthClusterAssociationProbs, double& jthClusterProbability, const int& N) {
-	double centroid = 0.0;
+ftype getCentroid(vector<ftype>& X, vector<ftype>& jthClusterAssociationProbs, ftype& jthClusterProbability, const int& N) {
+	ftype centroid = 0.0;
 	for (int i = 0; i < N; ++i) {
 		centroid += X[i] * jthClusterAssociationProbs[i];
 	}
@@ -132,16 +132,16 @@ double getCentroid(vector<double>& X, vector<double>& jthClusterAssociationProbs
  *
  * @return The vector containing the squared difference in cluster centroids between old and new centroids
  */
-vector<double> update(vector<double>& clusterCentroids, vector<vector<double>>& associationMatrix, vector<double>& clusterProbabilities, vector<double>& X, vector<double>& errorX, double& T, const int& N, vector<double>& partitionComponents) {
+vector<ftype> update(vector<ftype>& clusterCentroids, vector<vector<ftype>>& associationMatrix, vector<ftype>& clusterProbabilities, vector<ftype>& X, vector<ftype>& errorX, ftype& T, const int& N, vector<ftype>& partitionComponents) {
 	// Compute association probabilities first
 	updateAssociationProbabilityMatrix(associationMatrix, X, errorX, clusterCentroids, T, N, clusterProbabilities, partitionComponents);
 
 	// Now recompute cluster probabilities and cluster centroids
-	vector<double> deltas = {};
+	vector<ftype> deltas = {};
 	for (int j = 0; j < clusterProbabilities.size(); ++j) {
 		clusterProbabilities[j] = getClusterProbability(j, N, associationMatrix);
-		double newCentroid = getCentroid(X, associationMatrix[j], clusterProbabilities[j], N);
-		double deltaCentroid = clusterCentroids[j] - newCentroid;
+		ftype newCentroid = getCentroid(X, associationMatrix[j], clusterProbabilities[j], N);
+		ftype deltaCentroid = clusterCentroids[j] - newCentroid;
 		deltas.push_back(deltaCentroid * deltaCentroid);
 		clusterCentroids[j] = newCentroid;
 	}
@@ -149,9 +149,9 @@ vector<double> update(vector<double>& clusterCentroids, vector<vector<double>>& 
 	return deltas;
 }
 
-bool split(vector<double>& X, vector<double>& errorX, vector<double>& clusterCentroids, vector<vector<double>>& associationMatrix, vector<double>& clusterProbabilities, double& T, const int& N, double delta = 1e-3) {
-	vector<double> criticalTemps = getCriticalTemperatures(X, errorX, clusterCentroids, associationMatrix, N);
-	//stable_sort(criticalTemps.begin(), criticalTemps.end(), std::greater<double>() );
+bool split(vector<ftype>& X, vector<ftype>& errorX, vector<ftype>& clusterCentroids, vector<vector<ftype>>& associationMatrix, vector<ftype>& clusterProbabilities, ftype& T, const int& N, ftype delta = 1e-3) {
+	vector<ftype> criticalTemps = getCriticalTemperatures(X, errorX, clusterCentroids, associationMatrix, N);
+	//stable_sort(criticalTemps.begin(), criticalTemps.end(), std::greater<ftype>() );
 	/*printf("The current cluster critical temperatures are: \n");
 	for (int i = 0; i < criticalTemps.size(); ++i) {
 		printf("\t Temperature %i: %f \n", i, criticalTemps[i]);
@@ -164,19 +164,19 @@ bool split(vector<double>& X, vector<double>& errorX, vector<double>& clusterCen
 		if (T <= criticalTemps[k]) { // need to split that cluster
 			split = true;
 			//printf("Splitting the %ith cluster. \n", k);
-			double leftClusterProb = 0.0; // new cluster formed from tracks whose z < old centroid
-			double rightClusterProb = 0.0; // new cluster formed from tracks whose z > old centroid
+			ftype leftClusterProb = 0.0; // new cluster formed from tracks whose z < old centroid
+			ftype rightClusterProb = 0.0; // new cluster formed from tracks whose z > old centroid
 
-			double leftTotalWeight = 0.0;
-			double rightTotalWeight = 0.0;
-			double leftCentroid = 0.0;
-			double rightCentroid = 0.0;
+			ftype leftTotalWeight = 0.0;
+			ftype rightTotalWeight = 0.0;
+			ftype leftCentroid = 0.0;
+			ftype rightCentroid = 0.0;
 
 			for (int i = 0; i < N; ++i) {
-				double probabilty = associationMatrix[k][i];
-				double errorx = errorX[i];
-				double x = X[i];
-				double weight = probabilty / (errorx * errorx);
+				ftype probabilty = associationMatrix[k][i];
+				ftype errorx = errorX[i];
+				ftype x = X[i];
+				ftype weight = probabilty / (errorx * errorx);
 
 				if (x < clusterCentroids[k]) {
 					leftClusterProb += probabilty;
@@ -212,7 +212,7 @@ bool split(vector<double>& X, vector<double>& errorX, vector<double>& clusterCen
 			if (rightCentroid - leftCentroid > delta) {
 				clusterProbabilities.push_back(leftClusterProb * clusterProbabilities[k] / (leftClusterProb + rightClusterProb));
 
-				vector<double> newAssociationProbs = {};
+				vector<ftype> newAssociationProbs = {};
 				for (int i = 0; i < N; ++i) {
 					newAssociationProbs.push_back(leftClusterProb * associationMatrix[k][i] / (leftClusterProb + rightClusterProb));
 				}
@@ -229,7 +229,7 @@ bool split(vector<double>& X, vector<double>& errorX, vector<double>& clusterCen
 			// old splitting code
 			/*
 			clusterCentroids.push_back(clusterCentroids[k] + delta);
-			vector<double> newAssociationProbs = {};
+			vector<ftype> newAssociationProbs = {};
 			for (int i = 0; i < N; ++i) {
 				newAssociationProbs.push_back(associationMatrix[k][i] / 2.0);
 			}
@@ -246,38 +246,38 @@ bool split(vector<double>& X, vector<double>& errorX, vector<double>& clusterCen
 
 
 vector<int> runDA(event_t event) {
-    vector<pair<double, double>> data = event.trackData;
+    vector<pair<ftype, ftype>> data = event.trackData;
 
-    vector<double> X(data.size());
-    vector<double> errorX(data.size());
+    vector<ftype> X(data.size());
+    vector<ftype> errorX(data.size());
 
     for (int i = 0; i < data.size(); ++i) {
         X[i] = data[i].first;
         errorX[i] = data[i].second;
     }
 
-	// vector<double> X = data.trackData
-	// vector<double> errorX = data.second;
+	// vector<ftype> X = data.trackData
+	// vector<ftype> errorX = data.second;
 
 	std::clock_t time_start = std::clock();
 	// Step 1: Set Limts
-	double Tmin = 4;
-	double betaMax = 1.0 / Tmin;
-	double Tstop = 1.0;
-	double coolingFactor = 0.6;
-	double nSweeps = 20000;
+	ftype Tmin = 4;
+	ftype betaMax = 1.0 / Tmin;
+	ftype Tstop = 1.0;
+	ftype coolingFactor = 0.6;
+	ftype nSweeps = 20000;
 	bool useLinearCooling = true; // uses linear cooling in beta (1 / T is linearly increased)
-	double delta = 3.3e-5;
+	ftype delta = 3.3e-5;
 	int maxIterations = 350;
-	double convergenceCriteria = 1e-9; // squared difference between new centroid and old centroid
+	ftype convergenceCriteria = 1e-9; // squared difference between new centroid and old centroid
 	int Kmax = 2; //TODO: Set this to nVertices
 	int N = X.size();
 
 	// Step 2: Initialize
-	vector<double> clusterProbabilities = { 1.0 };
-	vector<double> partitionComponents = {};
+	vector<ftype> clusterProbabilities = { 1.0 };
+	vector<ftype> partitionComponents = {};
 
-	vector<double> clusterCentroids = { 0.0 };
+	vector<ftype> clusterCentroids = { 0.0 };
 	for (int j = 0; j < clusterCentroids.size(); ++j) {
 		for (int i = 0; i < N; ++i) {
 			clusterCentroids[j] += X[i];
@@ -285,16 +285,16 @@ vector<int> runDA(event_t event) {
 		clusterCentroids[j] /= N;
 	}
 
-	vector<vector<double>> associationMatrix = { {} };
+	vector<vector<ftype>> associationMatrix = { {} };
 	for (int i = 0; i < N; ++i) {
 		associationMatrix[0].push_back(1.0);
 	}
 
 	// Set initial temperature to first critical temperature
-	double T = getCriticalTemperatures(X, errorX, clusterCentroids, associationMatrix, N)[0];
-	double beta = 1.0 / T;
+	ftype T = getCriticalTemperatures(X, errorX, clusterCentroids, associationMatrix, N)[0];
+	ftype beta = 1.0 / T;
 
-	double deltaBeta = (betaMax - beta) / nSweeps;
+	ftype deltaBeta = (betaMax - beta) / nSweeps;
 	//printf("The first critical temperature is at %f \n", T);
 
 	// Annealing Loop
@@ -303,10 +303,10 @@ vector<int> runDA(event_t event) {
 
 		// Get the state into equilibrium
 		for (int n = 0; n < maxIterations; ++n) {
-			vector<double> deltas = update(clusterCentroids, associationMatrix, clusterProbabilities, X, errorX, T, N, partitionComponents);
+			vector<ftype> deltas = update(clusterCentroids, associationMatrix, clusterProbabilities, X, errorX, T, N, partitionComponents);
 
 			// Check for convergence
-			double sum = 0.0;
+			ftype sum = 0.0;
 			for (int j = 0; j < deltas.size(); ++j) {
 				sum += deltas[j];
 			}
@@ -368,10 +368,10 @@ vector<int> runDA(event_t event) {
 	while (split(X, errorX, clusterCentroids, associationMatrix, clusterProbabilities, T, N, delta) && ntry++ < 10) {
 		// Get the state into equilibrium
 		for (int n = 0; n < maxIterations; ++n) {
-			vector<double> deltas = update(clusterCentroids, associationMatrix, clusterProbabilities, X, errorX, T, N, partitionComponents);
+			vector<ftype> deltas = update(clusterCentroids, associationMatrix, clusterProbabilities, X, errorX, T, N, partitionComponents);
 
 			// Check for convergence
-			double sum = 0.0;
+			ftype sum = 0.0;
 			for (int j = 0; j < deltas.size(); ++j) {
 				sum += deltas[j];
 			}
@@ -389,10 +389,10 @@ vector<int> runDA(event_t event) {
 	// Step 5
 	// Get the state into equilibrium for the final temperature
 	for (int n = 0; n < maxIterations; ++n) {
-		vector<double> deltas = update(clusterCentroids, associationMatrix, clusterProbabilities, X, errorX, T, N, partitionComponents);
+		vector<ftype> deltas = update(clusterCentroids, associationMatrix, clusterProbabilities, X, errorX, T, N, partitionComponents);
 
 		// Check for convergence
-		double sum = 0.0;
+		ftype sum = 0.0;
 		for (int j = 0; j < deltas.size(); ++j) {
 			sum += deltas[j];
 		}
@@ -404,11 +404,11 @@ vector<int> runDA(event_t event) {
 
 	// Check for merging at the end
 	while (merge(clusterCentroids, X, errorX, clusterProbabilities, associationMatrix, T, N)) {
-		vector<double> deltas = update(clusterCentroids, associationMatrix, clusterProbabilities, X, errorX, T, N, partitionComponents);
+		vector<ftype> deltas = update(clusterCentroids, associationMatrix, clusterProbabilities, X, errorX, T, N, partitionComponents);
 	}
 
 	// do a final update on paramaters since some might have merged
-	vector<double> deltas = update(clusterCentroids, associationMatrix, clusterProbabilities, X, errorX, T, N, partitionComponents);
+	vector<ftype> deltas = update(clusterCentroids, associationMatrix, clusterProbabilities, X, errorX, T, N, partitionComponents);
 
 	std::clock_t time_stop = std::clock();
 
@@ -439,7 +439,7 @@ vector<int> runDA(event_t event) {
 
 	// //printf("%i", clusterProbabilities.size());
 	// std::ofstream responseFile("serializableResponse.json");
-	// double energy = 0.0;
+	// ftype energy = 0.0;
 	// responseFile << "[";
 	// responseFile << "[" << energy << ", [";
 	// vector<string> bitstring;
@@ -462,7 +462,7 @@ vector<int> runDA(event_t event) {
     vector<int> clusterAssignment(N, -1);
 
     for (int i = 0; i < N; ++i) {
-        double maxProb = 0.0;
+        ftype maxProb = 0.0;
         int maxCluster = -1;
         for (int j = 0; j < clusterProbabilities.size(); ++j) {
             if (associationMatrix[j][i] > maxProb) {
