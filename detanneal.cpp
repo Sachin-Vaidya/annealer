@@ -4,11 +4,7 @@
 #include <math.h>
 #include <utility>
 #include <vector>
-#include <fstream>
-#include <iostream>
-#include <string>
 #include <stdio.h>
-#include <algorithm>
 #include <ctime>
 
 #include "vertexing.hh"
@@ -423,38 +419,6 @@ vector<int> runDA(event_t event) {
 		printf("\t Probability %i: %f \n", i, clusterProbabilities[i]);
 	}
 	printf("\n");
-
-
-    // // print association matrix to 1 decimal place
-    // for (int j = 0; j < associationMatrix.size(); ++j) {
-    //     for (int i = 0; i < associationMatrix[j].size(); ++i) {
-    //         printf("%.2f ", associationMatrix[j][i]);
-    //     }
-    //     printf("\n");
-    // }
-
-    // // print size of association matrix 
-    // cout << associationMatrix.size() << " " << associationMatrix[0].size() << endl;
-
-
-	// //printf("%i", clusterProbabilities.size());
-	// std::ofstream responseFile("serializableResponse.json");
-	// ftype energy = 0.0;
-	// responseFile << "[";
-	// responseFile << "[" << energy << ", [";
-	// vector<string> bitstring;
-	// for (int i = 0; i < N; ++i) {
-	// 	for (int j = 0; j < clusterProbabilities.size(); ++j) {
-	// 		responseFile << "\"" << ((int)round(associationMatrix[j][i])) << "\"";
-	// 		if (i == N - 1 && j == clusterProbabilities.size() - 1) {
-	// 			responseFile << "]";
-	// 		}
-	// 		else {
-	// 			responseFile << ", ";
-	// 		}
-	// 	}
-	// }
-	// responseFile << "], " << (time_stop - time_start) << "]";
 
     // assoc matrix contains mapping from cluster number -> probability of track being in that cluster
     // we will process it to create a vector of length track count, where each element is the cluster number

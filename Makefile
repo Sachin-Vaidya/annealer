@@ -2,11 +2,11 @@
 
 # Compiler settings
 CXX = g++
-CXXFLAGS = -march=native -Rpass=loop-vectorize -Rpass-missed=loop-vectorize -std=c++17 -g -Wall -pthread -Ofast
+CXXFLAGS = -march=native -Rpass=loop-vectorize -std=c++17 -Wall -pthread -Ofast
 
 # Source files
-SRCS = annealer.cpp parser.cpp vertexing.cpp detanneal.cpp
-HEADERS = parser.hh vertexing.hh ThreadPool.h
+SRCS = annealer.cpp vertexing.cpp detanneal.cpp
+HEADERS = vertexing.hh
 
 # Executable name
 TARGET = annealer

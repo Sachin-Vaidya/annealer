@@ -1,9 +1,13 @@
+#include <iostream>
+#include <fstream>
+#include <string>
+#include <vector>
+#include <map>
+#include <random>
+#include <thread>
+
 #include "vertexing.hh"
 #include "detanneal.hh"
-// #include <execution>
-// #include <numeric>
-#include <algorithm>
-#include "ThreadPool.h"
 
 #define POOL_SIZE 1
 
@@ -33,7 +37,7 @@ struct result {
     ftype energy;
 };
 
-// sim anneal but problem specific!!
+// sim anneal but problem specific!! todo: make problem agnostic
 result sim_anneal(const QUBO& Q, const settings s, const solution_t init_guess = {}) { // intentionally get copy of settings
     // int n = qubo_size(Q);
 
@@ -45,9 +49,6 @@ result sim_anneal(const QUBO& Q, const settings s, const solution_t init_guess =
     uniform_int_distribution<> v_dis(0, s.context.nV - 1);
 
     solution_t x(Q.n, 0);
-    // for (auto &xi : x) {
-    //     xi = dis(gen) < 0.5 ? 0 : 1;
-    // }
 
     auto bit_idx = [s](int t, int v) {
         return t + s.context.nT * v;
@@ -62,10 +63,6 @@ result sim_anneal(const QUBO& Q, const settings s, const solution_t init_guess =
         track_to_vertex[t] = v;
         x[bit_idx(t, v)] = 1;
     }
-
-    // for (int t = 0; t < s.context.nT; t++) {
-    //     assert(x[bit_idx(t, track_to_vertex[t])] == 1);
-    // }
 
     if (!init_guess.empty()) {
         x = init_guess;
@@ -95,7 +92,6 @@ result sim_anneal(const QUBO& Q, const settings s, const solution_t init_guess =
         // if (old_v == new_v) continue;
 
         int old_bit = bit_idx(t, old_v);
-        // assert(x[old_bit] == 1);
 
         // cout << (int) x[old_bit] << '\n';
 
@@ -144,20 +140,8 @@ void assert_upper_triangular(const qubo_t& Q) {
     }
 }
 
-// todo: we shouldn't need to do this...
-// hack for now.
-void upper_to_lower(qubo_t& Q) {
-    assert_upper_triangular(Q);
-    for (auto& entry : Q) {
-        if (entry.first.first < entry.first.second) {
-            swap(entry.first.first, entry.first.second);
-        }
-    }
-}
-
 // returns sorted results of length num_threads * samples_per_thread. first elem is best.
 vector<result> multithreaded_sim_anneal(const QUBO& Q, const settings s, int num_threads, int samples_per_thread = 1, const vector<solution_t> init_guess = {}) {
-    assert_lower_triangular(Q.Q);
     vector<thread> threads;
     vector<result> results(num_threads * samples_per_thread);
     vector<solution_t> local_init_guess = init_guess;
@@ -189,43 +173,6 @@ vector<result> multithreaded_sim_anneal(const QUBO& Q, const settings s, int num
     return results;
 }
 
-// // takes in a sorted list of results and returns at least n solutions with as many unique solutions as possible that all have the best energy
-// vector<solution_t> best_effort_unique(const vector<result>& results, int n) {
-//     if (results.empty()) return {};
-
-//     vector<solution_t> result(n);
-//     map<solution_t, bool> best_unique_solutions;
-
-//     for (int i = 0; i < results.size(); i++) {
-//         if (results[i].energy == results[0].energy) {
-//             best_unique_solutions[results[i].solution] = true;
-//         } else {
-//             break;
-//         }
-//     }
-
-//     int num_best_unique = best_unique_solutions.size();
-
-//     int i = 0;
-//     for (const auto& [sol, _] : best_unique_solutions) {
-//         if (i == n) break;
-//         result[i++] = sol;
-//     }
-//     for (int j = 0; i < n; i++, j++) { // copy the start to fill the rest
-//         result[i] = result[j];
-//     }
-
-//     // debug
-
-//     cout << "Num best unique: " << num_best_unique << '\n';
-//     // for (const auto& sol : result) {
-//     //     cout << sol << '\n';
-//     // }
-//     // cout << '\n';
-
-//     return result;
-// }
-
 // replaces bottom half with top half
 vector<solution_t> best_effort_unique(const vector<result>& results, int n) {
     if (results.empty()) return {};
@@ -239,7 +186,7 @@ vector<solution_t> best_effort_unique(const vector<result>& results, int n) {
 
 
 vector<result> branch_rejoin_sa(const QUBO& Q, const settings s, int num_threads, int num_branches, int samples_per_thread = 1) {
-    auto modified_settings = s;
+    settings modified_settings = s;
     modified_settings.max_iter /= num_branches;
     vector<result> results;
     for (int i = 0; i < num_branches; i++) {
@@ -303,49 +250,20 @@ void present_results(const vector<result>& results, bool show_sols = true, int p
     }
 }
 
-qubo_t condense(vector<vector<ftype>> sparse) {
-    qubo_t dense;
-
-    if (sparse.size() != sparse[0].size()) {
-        cerr << "Error: matrix is not square." << endl;
-        exit(1);
-    }
-
-    for (int i = 0; i < sparse.size(); i++) {
-        for (int j = 0; j <= i; j++) { // only add lower triangular
-            if (sparse[i][j] != 0) { // only add non-zero entries
-                // dense[{i, j}] = sparse[i][j];
-                dense.push_back({{i, j}, sparse[i][j]});
-            }
-        }
-    }
-
-    return dense;
-}
-
-vector<vector<ftype>> sparsen(const qubo_t& dense) {
-    int n = qubo_size(dense);
-    vector<vector<ftype>> sparse(n, vector<ftype>(n, 0.0));
-    for (const auto& entry : dense) {
-        sparse[entry.first.first][entry.first.second] = entry.second;
-    }
-    return sparse;
-}
-
-qubo_t randgen_qubo(int n) {
-    qubo_t Q;
-    random_device rd;
-    unsigned seed = rd();
-    mt19937 gen(seed);
-    uniform_real_distribution<> dis(-10.0, 10.0);
-    for (int i = 0; i < n; i++) {
-        for (int j = 0; j <= i; j++) {
-            // Q[{i, j}] = dis(gen);
-            Q.push_back({{i, j}, dis(gen)});
-        }
-    }
-    return Q;
-}
+// qubo_t randgen_qubo(int n) {
+//     qubo_t Q;
+//     random_device rd;
+//     unsigned seed = rd();
+//     mt19937 gen(seed);
+//     uniform_real_distribution<> dis(-10.0, 10.0);
+//     for (int i = 0; i < n; i++) {
+//         for (int j = 0; j <= i; j++) {
+//             // Q[{i, j}] = dis(gen);
+//             Q.push_back({{i, j}, dis(gen)});
+//         }
+//     }
+//     return Q;
+// }
 
 int run_vertexing(int argc, char *argv[]) {
     if (argc != 2) {
@@ -356,40 +274,25 @@ int run_vertexing(int argc, char *argv[]) {
     string filename = argv[1];
     event_t event = loadTracks(filename);
 
-    // event_t event = loadTracks("/Users/ishan/event_tests/events_65V_30T_2.json");
-
     cout << "Loaded " << event.nT << " tracks\n";
     cout << "Loaded " << event.nV << " vertices\n";
-    // for (int i = 0; i < trackData.trackData.size(); i++) {
-    //     cout << trackData.trackData[i].first << " " << trackData.trackData[i].second << endl;
-    // }
 
-    qubo_t qubo = event_to_qubo(event);
-
-    cout << "QUBO size: " << qubo_size(qubo) << '\n';
-
-    upper_to_lower(qubo);
-
-    cout << "converted to lower triangular\n";
-
-    // ThreadPool pool(std::thread::hardware_concurrency());
-    ThreadPool pool(POOL_SIZE);
-
-    auto Q = QUBO(qubo, pool);
+    QUBO Q = event_to_qubo(event);
 
     // cout << Q;
 
     random_device rd;
-    // unsigned seed = rd();
 
-    settings s = {.max_iter = 8000000,
+    settings s = {.max_iter = 800000,
     // .T_0 = 0.26*2,///10000000,
     .T_0 = 0,
     // .T_0 = 400,
     // .temp_scheduler = make_geometric_scheduler(0.999999),
     .context = {.nT = event.nT, .nV = event.nV},
     .temp_scheduler = linear_scheduler,
-    .seed = rd()};
+    .seed = rd()
+    // .seed = 0,
+    };
 
     vector<result> results;
     result best;
@@ -474,78 +377,3 @@ int run_vertexing(int argc, char *argv[]) {
 int main(int argc, char* argv[]) {
     run_vertexing(argc, argv);
 }
-
-// int main() {
-//     // cout << fixed << setprecision(numeric_limits<ftype>::max_digits10);
-//     // cout << fixed << setprecision(5);
-//     // qubo_t Q = condense({
-//     //     { -2,  1,  1,  0,  0 },
-//     //     {  1, -2,  0,  1,  0 },
-//     //     {  1,  0, -3,  1,  1 },
-//     //     {  0,  1,  1, -3,  1 },
-//     //     {  0,  0,  1,  1, -2 }
-//     // });
-
-//     ThreadPool pool(POOL_SIZE);
-
-//     qubo_t Q_1 = condense({
-//         {-17, 10, 10, 10, 0, 20},
-//         {10, -18, 10, 10, 10, 20},
-//         {10, 10, -29, 10, 20, 20},
-//         {10, 10, 10, -19, 10, 10},
-//         {0, 10, 20, 10, -17, 10},
-//         {20, 20, 20, 10, 10, -28}
-//     });
-
-//     auto Q = QUBO(Q_1, pool);
-
-//     // auto t = "qubo.txt";
-
-//     // t = "2v.json";
-
-//     // auto Q = QUBO(parse_qubo(read_file(t)));
-
-//     // auto Q = randgen_qubo(6000);
-
-//     // cout << Q;
-
-//     // auto Q = randgen_qubo(10);
-
-//     random_device rd;
-//     // unsigned seed = rd();
-
-//     settings s = {.max_iter = 40000, .T_0 = 100.0,
-//     .temp_scheduler = make_geometric_scheduler(0.999), 
-//     // .temp_scheduler = linear_scheduler,
-//     .seed = rd()};
-
-//     vector<result> results = branch_rejoin_sa(Q, s, 8, 4, 4); // threads, branches, samples per thread
-
-//     result best = results[0];
-
-//     cout << "\nBranch rejoin (approach B) results: " << '\n';
-//     present_results(results, false);
-//     // present_results(results);
-
-//     // s.max_iter *= 2;
-//     // s.temp_scheduler = linear_scheduler;
-
-//     s.seed = rd();
-
-//     results = multithreaded_sim_anneal(Q, s, 8, 4); // threads, samples per thread
-
-//     best = results[0];
-
-//     cout << "\nMultithreaded (approach C) results: " << '\n';
-//     present_results(results, false);
-//     // present_results(results);
-
-//     vector<int> assignment = interpret(best.solution, Q.n/2, 2); // nT, nV
-
-//     cout << "Assignment: ";
-//     for (int i = 0; i < assignment.size(); i++) {
-//         cout << "Track " << i << " -> Vertex " << assignment[i] << '\n';
-//     }
-
-//     return 0;
-// }

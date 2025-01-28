@@ -1,3 +1,9 @@
+#include <iostream>
+#include <fstream>
+#include <map>
+#include <string>
+#include <assert.h>
+
 #include "vertexing.hh"
 
 vector<int> interpret(const solution_t &solution, const int nT, const int nV) {
@@ -80,14 +86,14 @@ ftype ground_state(const QUBO &qubo, const event_t &event) {
 }
 
 // https://arxiv.org/pdf/1903.08879
-qubo_t event_to_qubo(const event_t &event) {
+QUBO event_to_qubo(const event_t &event) {
     int nV = event.nV;
     int nT = event.nT;
     const auto& trackData = event.trackData;
 
     const ftype scale = 1.5;
 
-    map<pair<int, int>, ftype> qubo_map;
+    qubo_t qubo_map;
 
     auto D = [](pair<ftype, ftype> i, pair<ftype, ftype> j) {
         return abs(i.first - j.first) / sqrt(i.second * i.second + j.second * j.second);
@@ -141,8 +147,7 @@ qubo_t event_to_qubo(const event_t &event) {
             for (int j = i + 1; j < nT; ++j) {
                 ftype D_ij = D(trackData[i], trackData[j]);
                 // qubo_map[{idx(i, k), idx(j, k)}] += g(D_ij);
-                // qubo_map[{idx(i, k), idx(j, k)}] += g(D_ij/max_D);
-                qubo_map[{idx(i, k), idx(j, k)}] += g(D_ij/max_D);
+                qubo_map[{idx(j, k), idx(i, k)}] += g(D_ij/max_D);
             }
         }
     }
@@ -154,17 +159,15 @@ qubo_t event_to_qubo(const event_t &event) {
         for (int k = 0; k < nV; ++k) {
             qubo_map[{idx(i, k), idx(i, k)}] -= lambda;
             for (int k2 = k + 1; k2 < nV; ++k2) {
-                qubo_map[{idx(i, k), idx(i, k2)}] += 2 * lambda;
+                qubo_map[{idx(i, k2), idx(i, k)}] += 2 * lambda;
             }
         }
     }
 
-    qubo_t qubo(qubo_map.begin(), qubo_map.end());
+    cout << "qubo num terms: " << qubo_map.size() << '\n';
+    cout << "max possible: " << nT * nV << "^2\n";
 
-    cout << "qubo num terms: " << qubo.size() << '\n';
-    cout << "max possible: " << nT * nV * nT * nV << '\n';
-
-    return qubo;
+    return QUBO(qubo_map);
 }
 
 
