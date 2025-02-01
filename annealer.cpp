@@ -6,22 +6,21 @@
 #include <random>
 #include <thread>
 
+#include "annealer.hh"
 #include "vertexing.hh"
 #include "detanneal.hh"
-
-#define POOL_SIZE 1
 
 ostream& operator << (ostream& os, const solution_t& x) {
     for (auto xi : x) os << xi << ' ';
     return os;
 }
 
-ostream& operator << (ostream& os, const qubo_t& Q) {
-    for (const auto& entry : Q) {
-        os << '[' << entry.first.first << ' ' << entry.first.second << "] : " << entry.second << endl;
-    }
-    return os;
-}
+// ostream& operator << (ostream& os, const qubo_t& Q) {
+//     for (const auto& entry : Q) {
+//         os << '[' << entry.first.first << ' ' << entry.first.second << "] : " << entry.second << endl;
+//     }
+//     return os;
+// }
 
 struct settings {
     int max_iter;
@@ -37,18 +36,83 @@ struct result {
     ftype energy;
 };
 
-// sim anneal but problem specific!! todo: make problem agnostic
+inline int qubo_size(const qubo_t& Q) {
+    int n = 0;
+    for (const auto& entry : Q) {
+        n = max(n, entry.first.first);
+    }
+    return n + 1; // 0 indexed
+}
+
+QUBO::QUBO(qubo_t& Q) {
+    n = qubo_size(Q);
+
+    offset.resize(n + 1, 0); // n+1 to store end too.
+
+    for (const auto& [idx, val] : Q) {
+        offset[idx.first+1]++;
+        if (idx.first == idx.second) continue;
+        offset[idx.second+1]++;
+    }
+
+    // currently, offset[i] = size of row i-1. prefix sum to get the start of row i
+
+    for (int i = 1; i < offset.size(); i++) {
+        offset[i] += offset[i - 1];
+    }
+
+    affectedby_flat.resize(offset[n]); // total size of the flat list
+
+    vector<int> insert_pos = offset;
+
+    for (const auto& [idx, val] : Q) {
+        int i = idx.first;
+        int j = idx.second;
+        affectedby_flat[insert_pos[i]++] = {j, val};
+        if (i == j) continue;
+        affectedby_flat[insert_pos[j]++] = {i, val};
+    }
+
+    cout << "conversion done\n";
+    cout << "size of flat list = " << affectedby_flat.size() << "\n";
+}
+
+ftype QUBO::evaluate(const solution_t& x) const {
+    ftype value = 0.0;
+    for (int i = 0; i < x.size(); i++) {
+        if (x[i]) {
+            for (int k = offset[i]; k < offset[i + 1]; k++) {
+                const auto& [j, Q_ij] = affectedby_flat[k];
+                if (x[j] && j >= i) value += Q_ij; // only count each pair once
+            }
+        }
+    }
+    return value;
+}
+
+ftype QUBO::evaluateDiff(const solution_t& x, int flip_idx) const {
+    ftype diff = 0.0; // first, find what would be the value if this bit was on
+// #pragma clang loop vectorize_width(2)
+// #pragma clang loop interleave_count(2)
+    for (int k = offset[flip_idx]; k < offset[flip_idx + 1]; k++) {
+        const auto& [j, Q_ij] = affectedby_flat[k];
+        if (x[j] || j == flip_idx) diff += Q_ij;
+        // diff += (x[j] || j == flip_idx) * Q_ij;
+    }
+    return x[flip_idx] ? -diff : diff; // if on, turn off. if off, turn on.
+}
+
+// problem specific anneal
 result sim_anneal(const QUBO& Q, const settings s, const solution_t init_guess = {}) { // intentionally get copy of settings
     // int n = qubo_size(Q);
 
     mt19937 gen(s.seed);
     uniform_real_distribution<> dis(0.0, 1.0);
-    // uniform_int_distribution<> flip_dis(0, Q.n - 1);
 
     uniform_int_distribution<> t_dis(0, s.context.nT - 1);
     uniform_int_distribution<> v_dis(0, s.context.nV - 1);
 
-    solution_t x(Q.n, 0);
+    solution_t x(s.context.nT * s.context.nV, 0);
 
     auto bit_idx = [s](int t, int v) {
         return t + s.context.nT * v;
@@ -79,22 +143,15 @@ result sim_anneal(const QUBO& Q, const settings s, const solution_t init_guess =
         if (iter % 10000 == 0 && s.dolog) {
             cout << "Iter: " << iter << " Energy: " << f_x << " T: " << T << '\n';
         }
-        // int flip_idx = flip_dis(gen);
-
-        // ftype f_x_prime = Q.evaluateDiff(x, flip_idx) + f_x;
-
-        // x_prime[flip_idx] = !x_prime[flip_idx];
 
         int t = t_dis(gen); // pick random track to change vertex of
+        
         int old_v = track_to_vertex[t];
         int new_v = v_dis(gen); // pick random new vertex for track
 
         // if (old_v == new_v) continue;
 
         int old_bit = bit_idx(t, old_v);
-
-        // cout << (int) x[old_bit] << '\n';
-
         int new_bit = bit_idx(t, new_v);
 
         solution_t x_prime = x;
@@ -118,6 +175,8 @@ result sim_anneal(const QUBO& Q, const settings s, const solution_t init_guess =
 
         T = s.temp_scheduler(s.T_0, T, iter, s.max_iter);
     }
+
+    best_f_x = Q.evaluate(best_x); // re-evaluate best solution to remove float point errors
 
     return {best_x, best_f_x};
 }
@@ -208,10 +267,10 @@ scheduler_t make_geometric_scheduler(ftype alpha) {
 }
 
 
-void trial(solution_t x, const QUBO& Q) {
-    cout << "For solution: " << x << endl;
-    cout << "Energy: " << Q.evaluate(x) << endl << endl;
-}
+// void trial(solution_t x, const QUBO& Q) {
+//     cout << "For solution: " << x << endl;
+//     cout << "Energy: " << Q.evaluate(x) << endl << endl;
+// }
 
 void present_results(const vector<result>& results, bool show_sols = true, int precision = 5) {
     map<long, map<solution_t, int>> counts; // energy -> solution -> count

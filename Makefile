@@ -6,7 +6,7 @@ CXXFLAGS = -march=native -Rpass=loop-vectorize -std=c++17 -Wall -pthread -Ofast
 
 # Source files
 SRCS = annealer.cpp vertexing.cpp detanneal.cpp
-HEADERS = vertexing.hh
+HEADERS = annealer.hh vertexing.hh detanneal.hh
 
 # Executable name
 TARGET = annealer

@@ -37,7 +37,7 @@ vector<int> interpret(const solution_t &solution, const int nT, const int nV) {
 }
 
 ftype energy_from_assignment(const vector<int> &assignment, const QUBO &qubo, const int nT, const int nV) {
-    solution_t solution(qubo.n, 0);
+    solution_t solution(nT*nV, 0);
 
     for (int i = 0; i < assignment.size(); i++) {
         int vertex = assignment[i];
@@ -71,7 +71,7 @@ void print_score(const vector<int> &assignment, const event_t &event) {
 }
 
 ftype ground_state(const QUBO &qubo, const event_t &event) {
-    solution_t solution(qubo.n, 0);
+    solution_t solution(event.nT*event.nV, 0);
 
     auto idx = [event](int track, int vertex) {
         return track + event.nT * vertex;
