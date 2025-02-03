@@ -7,7 +7,7 @@
 
 using namespace std;
 
-using ftype = float;
+using ftype = double; // use double for actual math stuff
 using solution_t = vector<uint8_t>;
 using qubo_t = map<pair<int, int>, ftype>;
 using scheduler_t = function<ftype(ftype T_0, ftype T, int iter, int max_iter)>;
@@ -21,7 +21,8 @@ class QUBO {
     private:
         int n;
 
-        vector<pair<int, ftype>> affectedby_flat; // list of js that are affected by flipping a certain bit
+        // use float for params to save memory
+        vector<pair<int, float>> affectedby_flat; // list of js that are affected by flipping a certain bit
         vector<int> offset; // offset of each row in the flat list
     public:
         QUBO(qubo_t& Q);

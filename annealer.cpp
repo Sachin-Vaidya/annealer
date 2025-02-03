@@ -162,7 +162,7 @@ result sim_anneal(const QUBO& Q, const settings s, const solution_t init_guess =
 
         ftype f_x_prime = f_x + delta;
 
-        if (f_x_prime < f_x || dis(gen) < exp((f_x - f_x_prime) / T)) {
+        if (f_x_prime < f_x || (T != 0 && dis(gen) < exp((f_x - f_x_prime) / T))) {
             x = x_prime;
             f_x = f_x_prime;
             track_to_vertex[t] = new_v;
