@@ -1,3 +1,4 @@
+#include <cmath>
 #include <iostream>
 #include <fstream>
 #include <map>
@@ -34,6 +35,65 @@ vector<int> interpret(const solution_t &solution, const int nT, const int nV) {
     }
 
     return assignment;
+}
+
+
+// returns a vector of the z positions of the vertices. same vertex indices as that of the assignment
+// we simply average the z positions of the tracks assigned to each vertex
+vector<ftype> assignment_to_vertices(const vector<int> &assignment, const event_t &event) {
+    vector<ftype> vertices(event.nV, 0);
+    vector<int> counts(event.nV, 0);
+
+    assert(assignment.size() == event.nT);
+
+    for (int i = 0; i < event.nT; i++) {
+        int vertex = assignment[i]; // index of vertex track i is assigned to
+        vertices[vertex] += event.trackData[i].first; // z position of this track
+        counts[vertex]++;
+    }
+
+    for (int i = 0; i < vertices.size(); i++) {
+        if (counts[i] == 0) {
+            vertices[i] = -1;
+            continue;
+        }
+        vertices[i] /= counts[i];
+    }
+
+    // remove all -1s
+    vertices.erase(remove(vertices.begin(), vertices.end(), -1), vertices.end());
+
+    return vertices;
+}
+
+
+// this is a bit dubious because how do we know which vertex is supposed to be which?
+// currently we just sort both lists and check mse.
+ftype vertex_mse(const vector<ftype> &vertices, const event_t &event) {
+    vector<ftype> vertices_copy = vertices;
+    vector<ftype> event_vertices = event.vertices;
+
+    sort(vertices_copy.begin(), vertices_copy.end());
+    sort(event_vertices.begin(), event_vertices.end());
+
+    // cout both
+    cout << "vertices: ";
+    for (int i = 0; i < vertices.size(); i++) {
+        cout << vertices_copy[i] << " ";
+    }
+    cout << "\nevent vertices: ";
+    for (int i = 0; i < event_vertices.size(); i++) {
+        cout << event_vertices[i] << " ";
+    }
+    cout << "\n";
+
+    ftype mse = 0;
+    for (int i = 0; i < vertices_copy.size(); i++) {
+        ftype e = vertices_copy[i] - event_vertices[i];
+        mse += e * e;
+    }
+
+    return sqrt(mse / vertices_copy.size()); // this is actually rmse
 }
 
 ftype energy_from_assignment(const vector<int> &assignment, const QUBO &qubo, const int nT, const int nV) {
@@ -235,7 +295,7 @@ event_t loadTracks(string filename) {
         }
     }
 
-    return event_t{nVertices, (int) trackData.size(), trackData};
+    return event_t{nVertices, (int) trackData.size(), trackData, vertices};
 }
 
 // thank you O1 for the ARI implementation

@@ -241,7 +241,7 @@ bool split(vector<ftype>& X, vector<ftype>& errorX, vector<ftype>& clusterCentro
 }
 
 
-vector<int> runDA(event_t event) {
+pair<vector<int>, vector<ftype>> runDA(event_t event) {
     vector<pair<ftype, ftype>> data = event.trackData;
 
     vector<ftype> X(data.size());
@@ -441,5 +441,5 @@ vector<int> runDA(event_t event) {
     //     printf("%i, ", clusterAssignment[i]);
     // }
 
-    return clusterAssignment;
+    return {clusterAssignment, clusterCentroids};
 }

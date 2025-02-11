@@ -417,9 +417,17 @@ int run_vertexing(int argc, char *argv[]) {
     cout << "ratio: " << best.energy / ground << '\n';
     cout << "diff: " << best.energy - ground << '\n';
 
+
+    vector<ftype> vertices = assignment_to_vertices(assignment, event);
+    ftype mse = vertex_mse(vertices, event);
+    cout << "MSE: " << mse << '\n';
+
+
     cout << "running da\n";
 
-    vector<int> da_assignment = runDA(event);
+    pair<vector<int>, vector<ftype>> da_result = runDA(event);
+
+    vector<int> da_assignment = da_result.first;
 
     print_score(da_assignment, event);
 
@@ -429,6 +437,12 @@ int run_vertexing(int argc, char *argv[]) {
     cout << "DA energy: " << da_energy << '\n';
     cout << "ratio: " << da_energy / ground << '\n';
     cout << "diff: " << da_energy - ground << '\n';
+
+    // vector<ftype> da_vertices = assignment_to_vertices(da_assignment, event);
+    vector<ftype> da_vertices = da_result.second;
+    
+    ftype da_mse = vertex_mse(da_vertices, event);
+    cout << "DA MSE: " << da_mse << '\n';
 
     return 0;
 }
