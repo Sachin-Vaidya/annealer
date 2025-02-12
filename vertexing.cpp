@@ -66,9 +66,43 @@ vector<ftype> assignment_to_vertices(const vector<int> &assignment, const event_
     return vertices;
 }
 
+// both inputs should be sorted.
+ftype dp_matching(const vector<ftype> &A, const vector<ftype> &B) {
+    if (B.size() < A.size()) { // swap A and B if B is smaller
+        return dp_matching(B, A);
+    }
+
+    // rest assumes A is smaller or equal to B
+
+    // dp[i][j] is the minimum mse between the first i matches when considering the first j elems of B
+    vector<vector<ftype>> dp(A.size() + 1, vector<ftype>(B.size() + 1, 0));
+
+    for (int i = 0; i <= A.size(); i++) {
+        for (int j = i; j <= B.size(); j++) {
+            if (i == 0) {
+                dp[i][j] = 0;
+            } else if (j == 0) {
+                dp[i][j] = 0;
+            } else {
+                ftype e = A[i - 1] - B[j - 1];
+                if (i == j) { // we _have_ to match these
+                    dp[i][j] = dp[i - 1][j - 1] + e * e;
+                    continue;
+                }
+                dp[i][j] = min(dp[i - 1][j - 1] + e * e, // pick this matching
+                               dp[i][j - 1]);            // or skip this matching
+            }
+        }
+    }
+
+    int small_len = A.size();
+    return sqrt(dp[small_len][small_len] / small_len); // this is actually rmse
+}
+
 
 // this is a bit dubious because how do we know which vertex is supposed to be which?
-// currently we just sort both lists and check mse.
+// currently we use a dp matching algo to get the min mse.
+// one could still argue that this metric may be biased towards solutions with missing elems.
 ftype vertex_mse(const vector<ftype> &vertices, const event_t &event) {
     vector<ftype> vertices_copy = vertices;
     vector<ftype> event_vertices = event.vertices;
@@ -87,13 +121,15 @@ ftype vertex_mse(const vector<ftype> &vertices, const event_t &event) {
     }
     cout << "\n";
 
-    ftype mse = 0;
-    for (int i = 0; i < vertices_copy.size(); i++) {
-        ftype e = vertices_copy[i] - event_vertices[i];
-        mse += e * e;
-    }
+    return dp_matching(vertices_copy, event_vertices);
 
-    return sqrt(mse / vertices_copy.size()); // this is actually rmse
+    // ftype mse = 0;
+    // for (int i = 0; i < vertices_copy.size(); i++) {
+    //     ftype e = vertices_copy[i] - event_vertices[i];
+    //     mse += e * e;
+    // }
+
+    // return sqrt(mse / vertices_copy.size()); // this is actually rmse
 }
 
 ftype energy_from_assignment(const vector<int> &assignment, const QUBO &qubo, const int nT, const int nV) {
