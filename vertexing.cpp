@@ -95,8 +95,7 @@ ftype dp_matching(const vector<ftype> &A, const vector<ftype> &B) {
         }
     }
 
-    int small_len = A.size();
-    return sqrt(dp[small_len][small_len] / small_len); // this is actually rmse
+    return sqrt(dp[A.size()][B.size()] / A.size()); // this is actually rmse
 }
 
 
@@ -143,27 +142,31 @@ ftype energy_from_assignment(const vector<int> &assignment, const QUBO &qubo, co
     return qubo.evaluate(solution);
 }
 
-void print_score(const vector<int> &assignment, const event_t &event) {
+ftype print_score(const vector<int> &assignment, const event_t &event) {
     // print the ARI score of the assignment
     vector<int> true_labels(event.nT);
     for (int i = 0; i < event.nT; i++) {
         true_labels[i] = i/30; // 30 tracks per vertex. TODO: magic number bad
     }
 
-    // debug print true labels and assignment
-    cout << "true labels: ";
-    for (int i = 0; i < true_labels.size(); i++) {
-        cout << true_labels[i] << " ";
-    }
-    cout << endl;
+    // // debug print true labels and assignment
+    // cout << "true labels: ";
+    // for (int i = 0; i < true_labels.size(); i++) {
+    //     cout << true_labels[i] << " ";
+    // }
+    // cout << endl;
 
-    cout << "assignment: ";
-    for (int i = 0; i < assignment.size(); i++) {
-        cout << assignment[i] << " ";
-    }
-    cout << endl;
+    // cout << "assignment: ";
+    // for (int i = 0; i < assignment.size(); i++) {
+    //     cout << assignment[i] << " ";
+    // }
+    // cout << endl;
 
-    cout << "ARI: " << adjustedRandIndex(true_labels, assignment) << endl;
+    ftype ari = adjustedRandIndex(true_labels, assignment);
+
+    cout << "ARI: " << ari << endl;
+    
+    return ari;
 }
 
 ftype ground_state(const QUBO &qubo, const event_t &event) {

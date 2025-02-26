@@ -5,6 +5,7 @@
 #include <map>
 #include <random>
 #include <thread>
+#include <fstream>
 
 #include "annealer.hh"
 #include "vertexing.hh"
@@ -181,6 +182,57 @@ result sim_anneal(const QUBO& Q, const settings s, const solution_t init_guess =
     return {best_x, best_f_x};
 }
 
+
+// result sim_anneal_old(const QUBO& Q, const settings s, const solution_t init_guess = {}) { // intentionally get copy of settings
+//     // int n = qubo_size(Q);
+
+//     mt19937 gen(s.seed);
+//     uniform_real_distribution<> dis(0.0, 1.0);
+//     uniform_int_distribution<> flip_dis(0, s.context.nT * s.context.nV - 1);
+
+//     solution_t x(s.context.nT * s.context.nV, 0);
+//     for (auto &xi : x) {
+//         xi = dis(gen) < 0.5 ? 0 : 1;
+//     }
+
+//     if (!init_guess.empty()) x = init_guess;
+
+//     double f_x = Q.evaluate(x);
+
+//     solution_t best_x = x;
+//     double best_f_x = f_x;
+
+//     double T = s.T_0;
+//     for (int iter = 0; iter < s.max_iter; iter++) {
+//         if (iter % 10000 == 0 && s.dolog) {
+//             cout << "Iter: " << iter << " Energy: " << best_f_x << " T: " << T << '\n';
+//         }
+
+//         solution_t x_prime = x;
+//         int flip_idx = flip_dis(gen);
+
+//         double f_x_prime = Q.evaluateDiff(x, flip_idx) + f_x;
+
+//         x_prime[flip_idx] = !x_prime[flip_idx];
+
+//         if (f_x_prime < f_x || dis(gen) < exp((f_x - f_x_prime) / T)) {
+//             x = x_prime;
+//             f_x = f_x_prime;
+//         }
+
+//         if (f_x < best_f_x) {
+//             best_x = x;
+//             best_f_x = f_x;
+//         }
+
+//         T = s.temp_scheduler(s.T_0, T, iter, s.max_iter);
+//     }
+
+//     best_f_x = Q.evaluate(best_x); // re-evaluate best solution to remove float point errors
+
+//     return {best_x, best_f_x};
+// }
+
 void assert_lower_triangular(const qubo_t& Q) {
     for (const auto& entry : Q) {
         if (entry.first.first < entry.first.second) {
@@ -324,13 +376,66 @@ void present_results(const vector<result>& results, bool show_sols = true, int p
 //     return Q;
 // }
 
-int run_vertexing(int argc, char *argv[]) {
-    if (argc != 2) {
-        cout << "Usage: ./annealer <filename>\n";
-        return 1;
-    }
+void logfile_append(const string& filename, const string& problem, ftype ARI, ftype energy_diff, ftype mse, ftype ground) {
+    ofstream logfile;
+    logfile.open(filename, ios::app);
+    logfile << problem << ',' << ARI << ',' << energy_diff << ',' << mse << ',' << ground << '\n';
+    logfile.close();
+}
 
-    string filename = argv[1];
+struct clustering_result {
+    string filename;
+    vector<int> assignment;
+    vector<int> truth;
+    vector<ftype> vertices;
+    vector<ftype> truth_vertices;
+    ftype energy;
+    ftype ground;
+};
+
+void json_init(ofstream& jsonfile) {
+    jsonfile << "{\n";
+    jsonfile << "\"results\": [\n";
+}
+
+void json_append(ofstream& jsonfile, const clustering_result& result) {
+    jsonfile << "{\n";
+    jsonfile << "\"filename\": \"" << result.filename << "\",\n";
+
+    auto write_ints = [&jsonfile](string name, const vector<int>& vec) {
+        jsonfile << "\"" << name << "\": [";
+        for (int i = 0; i < vec.size(); i++) {
+            jsonfile << vec[i];
+            if (i != vec.size() - 1) jsonfile << ", ";
+        }
+        jsonfile << "],\n";
+    };
+
+    auto write_floats = [&jsonfile](string name, const vector<ftype>& vec) {
+        jsonfile << "\"" << name << "\": [";
+        for (int i = 0; i < vec.size(); i++) {
+            jsonfile << vec[i];
+            if (i != vec.size() - 1) jsonfile << ", ";
+        }
+        jsonfile << "],\n";
+    };
+    
+    write_ints("assignment", result.assignment);
+    write_ints("truth", result.truth);
+    write_floats("vertices", result.vertices);
+    write_floats("truth_vertices", result.truth_vertices);
+
+    jsonfile << "\"energy\": " << result.energy << ",\n";
+    jsonfile << "\"ground\": " << result.ground << "\n";
+    jsonfile << "}";
+}
+
+void json_close(ofstream& jsonfile) {
+    jsonfile << "]\n";
+    jsonfile << "}\n";
+}
+
+pair<clustering_result, clustering_result> run_vertexing(string filename) {
     event_t event = loadTracks(filename);
 
     cout << "Loaded " << event.nT << " tracks\n";
@@ -370,7 +475,7 @@ int run_vertexing(int argc, char *argv[]) {
     // s.dolog = false;
     // results = multithreaded_sim_anneal(Q, s, 8, 1); // threads, samples per thread
     
-    results = multithreaded_sim_anneal(Q, s, 8, 1); // threads, samples per thread
+    results = multithreaded_sim_anneal(Q, s, 8, 4); // threads, samples per thread
     best = results[0];
 
     if (results[0].energy < best.energy) {
@@ -408,7 +513,7 @@ int run_vertexing(int argc, char *argv[]) {
         cout << '\n';
     }
 
-    print_score(assignment, event);
+    ftype ari = print_score(assignment, event);
 
     ftype ground = ground_state(Q, event);
 
@@ -422,6 +527,17 @@ int run_vertexing(int argc, char *argv[]) {
     ftype mse = vertex_mse(vertices, event);
     cout << "MSE: " << mse << '\n';
 
+    vector<int> truth;
+    for (int i = 0; i < event.nT; i++) {
+        truth.push_back(i / 30);
+    }
+
+    clustering_result sa_result = {filename, assignment, truth, vertices, event.vertices, best.energy, ground};
+    // json_append(sa_stream, sa_result);
+
+    // logfile_append("sa.csv", filename, ari, best.energy - ground, mse, ground);
+
+    // return 0; // skip da.
 
     cout << "running da\n";
 
@@ -429,7 +545,7 @@ int run_vertexing(int argc, char *argv[]) {
 
     vector<int> da_assignment = da_result.first;
 
-    print_score(da_assignment, event);
+    ari = print_score(da_assignment, event);
 
     ftype da_energy = energy_from_assignment(da_assignment, Q, event.nT, event.nV);
 
@@ -444,9 +560,44 @@ int run_vertexing(int argc, char *argv[]) {
     ftype da_mse = vertex_mse(da_vertices, event);
     cout << "DA MSE: " << da_mse << '\n';
 
-    return 0;
+    clustering_result da_clustering_result = {filename, da_assignment, truth, da_vertices, event.vertices, da_energy, ground};
+    // json_append(da_stream, da_clustering_result);
+
+    // logfile_append("da.csv", filename, ari, da_energy - ground, da_mse, ground);
+
+    return {sa_result, da_clustering_result};
 }
 
 int main(int argc, char* argv[]) {
-    run_vertexing(argc, argv);
+    if (argc != 2) {
+        cout << "Usage: ./annealer <filename>\n";
+        return 1;
+    }
+
+    string filename_base = argv[1];
+    int num_files = 15;
+
+    cout << "Running " << num_files << " files\n";
+
+    ofstream sa_stream("sa.json");
+    ofstream da_stream("da.json");
+
+    json_init(sa_stream);
+    json_init(da_stream);
+
+    for (int i = 1; i <= num_files; i++) {
+        cout << "Running file " << i << '\n';
+
+        string filename = filename_base + "_" + to_string(i) + ".json";
+        pair<clustering_result, clustering_result> p = run_vertexing(filename);
+        if (i!=1) sa_stream << ",\n"; json_append(sa_stream, p.first);
+        if (i!=1) da_stream << ",\n"; json_append(da_stream, p.second);
+        
+        cout << "Done with file " << i << '\n';
+    }
+
+    json_close(sa_stream);
+    json_close(da_stream);
+
+    return 0;
 }

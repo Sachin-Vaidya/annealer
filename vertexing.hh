@@ -22,7 +22,7 @@ QUBO event_to_qubo(const event_t &event);
 ftype adjustedRandIndex(const vector<int> &a, const vector<int> &b);
 ftype vertex_mse(const vector<ftype> &vertices, const event_t &event);
 vector<ftype> assignment_to_vertices(const vector<int> &assignment, const event_t &event);
-void print_score(const vector<int> &assignment, const event_t &event);
+ftype print_score(const vector<int> &assignment, const event_t &event);
 
 ftype ground_state(const QUBO &qubo, const event_t &event);
 ftype energy_from_assignment(const vector<int> &assignment, const QUBO &qubo, const int nT, const int nV);
