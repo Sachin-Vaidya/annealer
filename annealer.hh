@@ -12,11 +12,6 @@ using solution_t = vector<uint8_t>;
 using qubo_t = map<pair<int, int>, ftype>;
 using scheduler_t = function<ftype(ftype T_0, ftype T, int iter, int max_iter)>;
 
-struct problem_context {
-    int nT;
-    int nV;
-};
-
 class QUBO {
     private:
         int n;

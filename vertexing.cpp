@@ -269,6 +269,70 @@ QUBO event_to_qubo(const event_t &event) {
     return QUBO(qubo_map);
 }
 
+ftype get_max_D(const event_t &event) {
+    auto D = [](pair<ftype, ftype> i, pair<ftype, ftype> j) {
+        return abs(i.first - j.first) / sqrt(i.second * i.second + j.second * j.second);
+    };
+
+    ftype max_D = 0.0;
+    for (int i = 0; i < event.nT; i++) {
+        for (int j = i + 1; j < event.nT; j++) {
+            max_D = max(max_D, D(event.trackData[i], event.trackData[j]));
+        }
+    }
+
+    cout << "max_D: " << max_D << '\n';
+
+    return max_D;
+}
+
+ftype evaluate_diff_on_the_fly(const solution_t &x, const event_t &event, int flip_idx, ftype max_D) {
+    ftype lambda = 2;
+    
+    int nT = event.nT, nV = event.nV;
+    int track = flip_idx % nT;
+    int vertex = flip_idx / nT;
+
+    auto D = [](pair<ftype, ftype> i, pair<ftype, ftype> j) {
+        return abs(i.first - j.first) / sqrt(i.second * i.second + j.second * j.second);
+    };
+
+    const ftype scale = 1.5;
+
+    auto g = [scale](ftype x, ftype m = 5) {
+        // return 1.0 - exp(-m * x);
+        // return x + log(1.0 + x);
+        // return x;
+
+        return scale * (1.0 - exp(-m * x));
+        // cout << x << '\n';
+        // return 1.0 - exp(-x);
+        // cout << 1.0 - exp(-x) << '\n';
+        // return 1.0 - exp(-x);
+    };
+
+    auto idx = [nT](int track, int vertex) {
+        return track + nT * vertex;
+    };
+
+    ftype diff = 0.0;
+    for (int j = 0; j < nT; j++) {
+        if (j == track) continue;
+        int other_idx = idx(j, vertex);
+        ftype term = g(D(event.trackData[track], event.trackData[j]) / max_D);
+        diff += term * x[other_idx];
+    }
+    for (int v = 0; v < nV; v++) {
+        int current_idx = idx(track, v);
+        if (v == vertex) {
+            diff -= lambda;
+        } else {
+            diff += 2 * lambda * x[current_idx];
+        }
+    }
+    return x[flip_idx] ? -diff : diff;
+}
+
 
 // source: andrew wildridge. lightly modified
 event_t loadTracks(string filename) {

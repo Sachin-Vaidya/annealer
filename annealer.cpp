@@ -110,20 +110,22 @@ result sim_anneal(const QUBO& Q, const settings s, const solution_t init_guess =
     mt19937 gen(s.seed);
     uniform_real_distribution<> dis(0.0, 1.0);
 
-    uniform_int_distribution<> t_dis(0, s.context.nT - 1);
-    uniform_int_distribution<> v_dis(0, s.context.nV - 1);
+    int nT = s.context.event.nT; int nV = s.context.event.nV;
 
-    solution_t x(s.context.nT * s.context.nV, 0);
+    uniform_int_distribution<> t_dis(0, nT - 1);
+    uniform_int_distribution<> v_dis(0, nV - 1);
 
-    auto bit_idx = [s](int t, int v) {
-        return t + s.context.nT * v;
+    solution_t x(nT * nV, 0);
+
+    auto bit_idx = [nT](int t, int v) {
+        return t + nT * v;
     };
 
     // helper.
-    vector<int> track_to_vertex(s.context.nT, -1);
+    vector<int> track_to_vertex(nT, -1);
 
     // for each track, assign random vertex
-    for (int t = 0; t < s.context.nT; t++) {
+    for (int t = 0; t < nT; t++) {
         int v = v_dis(gen);
         track_to_vertex[t] = v;
         x[bit_idx(t, v)] = 1;
@@ -131,6 +133,16 @@ result sim_anneal(const QUBO& Q, const settings s, const solution_t init_guess =
 
     if (!init_guess.empty()) {
         x = init_guess;
+
+        for (int t = 0; t < nT; t++) {
+            for (int v = 0; v < nV; v++) {
+                if (x[bit_idx(t, v)]) {
+                    track_to_vertex[t] = v;
+                    // break;
+                }
+            }
+        }
+
         cout << "Using init guess\n";
     }
 
@@ -141,7 +153,7 @@ result sim_anneal(const QUBO& Q, const settings s, const solution_t init_guess =
 
     ftype T = s.T_0;
     for (int iter = 0; iter < s.max_iter; iter++) {
-        if (iter % 10000 == 0 && s.dolog) {
+        if (iter % 30000 == 0 && s.dolog) {
             cout << "Iter: " << iter << " Energy: " << f_x << " T: " << T << '\n';
         }
 
@@ -156,9 +168,15 @@ result sim_anneal(const QUBO& Q, const settings s, const solution_t init_guess =
         int new_bit = bit_idx(t, new_v);
 
         solution_t x_prime = x;
-        ftype delta = Q.evaluateDiff(x_prime, old_bit);
+        // ftype delta = Q.evaluateDiff(x_prime, old_bit);
+
+        ftype delta = evaluate_diff_on_the_fly(x_prime, s.context.event, old_bit, s.context.max_D);
+
         x_prime[old_bit] = 0;
-        delta += Q.evaluateDiff(x_prime, new_bit);
+        // delta += Q.evaluateDiff(x_prime, new_bit);
+
+        delta += evaluate_diff_on_the_fly(x_prime, s.context.event, new_bit, s.context.max_D);
+
         x_prime[new_bit] = 1;
 
         ftype f_x_prime = f_x + delta;
@@ -452,7 +470,7 @@ pair<clustering_result, clustering_result> run_vertexing(string filename) {
     .T_0 = 0,
     // .T_0 = 400,
     // .temp_scheduler = make_geometric_scheduler(0.999999),
-    .context = {.nT = event.nT, .nV = event.nV},
+    .context = {.event=event, .max_D = get_max_D(event)},
     .temp_scheduler = linear_scheduler,
     .seed = rd()
     // .seed = 0,
@@ -461,31 +479,35 @@ pair<clustering_result, clustering_result> run_vertexing(string filename) {
     vector<result> results;
     result best;
 
-    // results = branch_rejoin_sa(Q, s, 8, 4, 1); // threads, branches, samples per thread
+    results = branch_rejoin_sa(Q, s, 8, 4, 4); // threads, branches, samples per thread
 
-    // best = results[0];
+    best = results[0];
 
-    // cout << "\nBranch rejoin (approach B) results: " << '\n';
+    cout << "\nBranch rejoin (approach B) results: " << '\n';
 
-    // present_results(results, false);
+    present_results(results, false);
 
     // s.max_iter *= 2;
     // s.temp_scheduler = linear_scheduler;
     // s.seed = rd();
     // s.dolog = false;
     // results = multithreaded_sim_anneal(Q, s, 8, 1); // threads, samples per thread
-    
-    results = multithreaded_sim_anneal(Q, s, 8, 4); // threads, samples per thread
-    best = results[0];
 
-    if (results[0].energy < best.energy) {
-        cout << "choosing multithreaded result\n";
-        best = results[0];
-    }
 
-    cout << "\nMultithreaded (approach C) results: " << '\n';
 
-    present_results(results, false);
+    // results = multithreaded_sim_anneal(Q, s, 8, 4); // threads, samples per thread
+    // best = results[0];
+
+    // if (results[0].energy < best.energy) {
+    //     cout << "choosing multithreaded result\n";
+    //     best = results[0];
+    // }
+
+    // cout << "\nMultithreaded (approach C) results: " << '\n';
+
+    // present_results(results, false);
+
+
 
     // present_results(results);
 
@@ -579,8 +601,8 @@ int main(int argc, char* argv[]) {
 
     cout << "Running " << num_files << " files\n";
 
-    ofstream sa_stream("sa.json");
-    ofstream da_stream("da.json");
+    ofstream sa_stream("sa_min_dunn1.json");
+    ofstream da_stream("da_min_dunn1.json");
 
     json_init(sa_stream);
     json_init(da_stream);
