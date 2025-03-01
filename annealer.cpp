@@ -30,6 +30,7 @@ struct settings {
     unsigned seed;
     problem_context context;
     bool dolog = true;
+    // bool OTF = true;
 };
 
 struct result {
@@ -45,7 +46,15 @@ inline int qubo_size(const qubo_t& Q) {
     return n + 1; // 0 indexed
 }
 
+QUBO::QUBO(event_t& event) {
+    this->OTF = true;
+    this->event = &event;
+    this->max_D = get_max_D(event);
+}
+
 QUBO::QUBO(qubo_t& Q) {
+    this->OTF = false;
+    
     n = qubo_size(Q);
 
     offset.resize(n + 1, 0); // n+1 to store end too.
@@ -79,6 +88,10 @@ QUBO::QUBO(qubo_t& Q) {
 }
 
 ftype QUBO::evaluate(const solution_t& x) const {
+    if (this->OTF) {
+        return evaluate_full_OTF(x, *this->event, this->max_D);
+    }
+
     ftype value = 0.0;
     for (int i = 0; i < x.size(); i++) {
         if (x[i]) {
@@ -92,6 +105,10 @@ ftype QUBO::evaluate(const solution_t& x) const {
 }
 
 ftype QUBO::evaluateDiff(const solution_t& x, int flip_idx) const {
+    if (this->OTF) {
+        return evaluate_diff_on_the_fly(x, *this->event, flip_idx, this->max_D);
+    }
+
     ftype diff = 0.0; // first, find what would be the value if this bit was on
 // #pragma clang loop vectorize_width(2)
 // #pragma clang loop interleave_count(2)
@@ -105,8 +122,6 @@ ftype QUBO::evaluateDiff(const solution_t& x, int flip_idx) const {
 
 // problem specific anneal
 result sim_anneal(const QUBO& Q, const settings s, const solution_t init_guess = {}) { // intentionally get copy of settings
-    // int n = qubo_size(Q);
-
     mt19937 gen(s.seed);
     uniform_real_distribution<> dis(0.0, 1.0);
 
@@ -168,14 +183,12 @@ result sim_anneal(const QUBO& Q, const settings s, const solution_t init_guess =
         int new_bit = bit_idx(t, new_v);
 
         solution_t x_prime = x;
-        // ftype delta = Q.evaluateDiff(x_prime, old_bit);
 
-        ftype delta = evaluate_diff_on_the_fly(x_prime, s.context.event, old_bit, s.context.max_D);
+        ftype delta = Q.evaluateDiff(x_prime, old_bit);
 
         x_prime[old_bit] = 0;
-        // delta += Q.evaluateDiff(x_prime, new_bit);
 
-        delta += evaluate_diff_on_the_fly(x_prime, s.context.event, new_bit, s.context.max_D);
+        delta += Q.evaluateDiff(x_prime, new_bit);
 
         x_prime[new_bit] = 1;
 
@@ -195,61 +208,11 @@ result sim_anneal(const QUBO& Q, const settings s, const solution_t init_guess =
         T = s.temp_scheduler(s.T_0, T, iter, s.max_iter);
     }
 
-    best_f_x = Q.evaluate(best_x); // re-evaluate best solution to remove float point errors
+    // re-evaluate best solution to eliminate float point errors
+    best_f_x = Q.evaluate(best_x);
 
     return {best_x, best_f_x};
 }
-
-
-// result sim_anneal_old(const QUBO& Q, const settings s, const solution_t init_guess = {}) { // intentionally get copy of settings
-//     // int n = qubo_size(Q);
-
-//     mt19937 gen(s.seed);
-//     uniform_real_distribution<> dis(0.0, 1.0);
-//     uniform_int_distribution<> flip_dis(0, s.context.nT * s.context.nV - 1);
-
-//     solution_t x(s.context.nT * s.context.nV, 0);
-//     for (auto &xi : x) {
-//         xi = dis(gen) < 0.5 ? 0 : 1;
-//     }
-
-//     if (!init_guess.empty()) x = init_guess;
-
-//     double f_x = Q.evaluate(x);
-
-//     solution_t best_x = x;
-//     double best_f_x = f_x;
-
-//     double T = s.T_0;
-//     for (int iter = 0; iter < s.max_iter; iter++) {
-//         if (iter % 10000 == 0 && s.dolog) {
-//             cout << "Iter: " << iter << " Energy: " << best_f_x << " T: " << T << '\n';
-//         }
-
-//         solution_t x_prime = x;
-//         int flip_idx = flip_dis(gen);
-
-//         double f_x_prime = Q.evaluateDiff(x, flip_idx) + f_x;
-
-//         x_prime[flip_idx] = !x_prime[flip_idx];
-
-//         if (f_x_prime < f_x || dis(gen) < exp((f_x - f_x_prime) / T)) {
-//             x = x_prime;
-//             f_x = f_x_prime;
-//         }
-
-//         if (f_x < best_f_x) {
-//             best_x = x;
-//             best_f_x = f_x;
-//         }
-
-//         T = s.temp_scheduler(s.T_0, T, iter, s.max_iter);
-//     }
-
-//     best_f_x = Q.evaluate(best_x); // re-evaluate best solution to remove float point errors
-
-//     return {best_x, best_f_x};
-// }
 
 void assert_lower_triangular(const qubo_t& Q) {
     for (const auto& entry : Q) {
@@ -454,32 +417,34 @@ void json_close(ofstream& jsonfile) {
 }
 
 pair<clustering_result, clustering_result> run_vertexing(string filename) {
+    bool OTF = true; // on the fly evaluation vs store qubo terms. memory and speed tradeoff
+
     event_t event = loadTracks(filename);
 
     cout << "Loaded " << event.nT << " tracks\n";
     cout << "Loaded " << event.nV << " vertices\n";
 
-    QUBO Q = event_to_qubo(event);
+    QUBO Q = OTF ? QUBO(event) : event_to_qubo(event);
 
     // cout << Q;
 
     random_device rd;
 
-    settings s = {.max_iter = 800000,
+    settings s = {.max_iter = 800000, 
     // .T_0 = 0.26*2,///10000000,
     .T_0 = 0,
     // .T_0 = 400,
     // .temp_scheduler = make_geometric_scheduler(0.999999),
     .context = {.event=event, .max_D = get_max_D(event)},
     .temp_scheduler = linear_scheduler,
-    .seed = rd()
+    .seed = rd(),
     // .seed = 0,
     };
 
     vector<result> results;
     result best;
 
-    results = branch_rejoin_sa(Q, s, 8, 4, 4); // threads, branches, samples per thread
+    results = branch_rejoin_sa(Q, s, 8, 4, 1); // threads, branches, samples per thread
 
     best = results[0];
 

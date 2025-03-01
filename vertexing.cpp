@@ -169,21 +169,6 @@ ftype print_score(const vector<int> &assignment, const event_t &event) {
     return ari;
 }
 
-ftype ground_state(const QUBO &qubo, const event_t &event) {
-    solution_t solution(event.nT*event.nV, 0);
-
-    auto idx = [event](int track, int vertex) {
-        return track + event.nT * vertex;
-    };
-
-    for (int i = 0; i < event.nT; i++) {
-        int vertex = i / 30; // 30 tracks per vertex. TODO: magic number bad
-        solution[idx(i, vertex)] = 1;
-    }
-
-    return qubo.evaluate(solution);
-}
-
 // https://arxiv.org/pdf/1903.08879
 QUBO event_to_qubo(const event_t &event) {
     int nV = event.nV;
@@ -286,6 +271,19 @@ ftype get_max_D(const event_t &event) {
     return max_D;
 }
 
+ftype evaluate_full_OTF(const solution_t &x, const event_t &event, ftype max_D) {
+    ftype value = 0.0;
+    solution_t curr_x(x.size(), 0);
+    for (int i = 0; i < x.size(); i++) {
+        if (x[i]) {
+            ftype delta = evaluate_diff_on_the_fly(curr_x, event, i, max_D);
+            value += delta;
+            curr_x[i] = 1;
+        }
+    }
+    return value;
+}
+
 ftype evaluate_diff_on_the_fly(const solution_t &x, const event_t &event, int flip_idx, ftype max_D) {
     ftype lambda = 2;
     
@@ -331,6 +329,21 @@ ftype evaluate_diff_on_the_fly(const solution_t &x, const event_t &event, int fl
         }
     }
     return x[flip_idx] ? -diff : diff;
+}
+
+
+ftype ground_state(const QUBO &qubo, const event_t &event) {
+    solution_t solution(event.nT*event.nV, 0);
+
+    auto idx = [event](int track, int vertex) {
+        return track + event.nT * vertex;
+    };
+
+    for (int i = 0; i < event.nT; i++) {
+        int vertex = i / 30; // 30 tracks per vertex. TODO: magic number bad
+        solution[idx(i, vertex)] = 1;
+    }
+    return qubo.evaluate(solution);
 }
 
 
