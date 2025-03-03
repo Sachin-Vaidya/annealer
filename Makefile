@@ -2,7 +2,7 @@
 
 # Compiler settings
 CXX = g++
-CXXFLAGS = -march=native -Rpass=loop-vectorize -std=c++17 -Wall -pthread -Ofast
+CXXFLAGS = -march=native -std=c++17 -Wall -pthread -Ofast
 
 # Source files
 SRCS = annealer.cpp vertexing.cpp detanneal.cpp

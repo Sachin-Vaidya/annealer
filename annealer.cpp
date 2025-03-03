@@ -372,6 +372,7 @@ struct clustering_result {
     vector<ftype> truth_vertices;
     ftype energy;
     ftype ground;
+    ftype seconds;
 };
 
 void json_init(ofstream& jsonfile) {
@@ -407,7 +408,8 @@ void json_append(ofstream& jsonfile, const clustering_result& result) {
     write_floats("truth_vertices", result.truth_vertices);
 
     jsonfile << "\"energy\": " << result.energy << ",\n";
-    jsonfile << "\"ground\": " << result.ground << "\n";
+    jsonfile << "\"ground\": " << result.ground << ",\n";
+    jsonfile << "\"seconds\": " << result.seconds << "\n";
     jsonfile << "}";
 }
 
@@ -418,11 +420,14 @@ void json_close(ofstream& jsonfile) {
 
 pair<clustering_result, clustering_result> run_vertexing(string filename) {
     bool OTF = true; // on the fly evaluation vs store qubo terms. memory and speed tradeoff
+    // empirically OTF actually ends up being faster since we don't spend time constructing the qubo (!!)
 
     event_t event = loadTracks(filename);
 
     cout << "Loaded " << event.nT << " tracks\n";
     cout << "Loaded " << event.nV << " vertices\n";
+
+    auto timer_start = chrono::high_resolution_clock::now();
 
     QUBO Q = OTF ? QUBO(event) : event_to_qubo(event);
 
@@ -430,21 +435,22 @@ pair<clustering_result, clustering_result> run_vertexing(string filename) {
 
     random_device rd;
 
-    settings s = {.max_iter = 800000, 
-    // .T_0 = 0.26*2,///10000000,
-    .T_0 = 0,
-    // .T_0 = 400,
-    // .temp_scheduler = make_geometric_scheduler(0.999999),
-    .context = {.event=event, .max_D = get_max_D(event)},
-    .temp_scheduler = linear_scheduler,
-    .seed = rd(),
-    // .seed = 0,
+    settings s = {
+        .max_iter = 800000*10,
+        // .T_0 = 0.26*2,///10000000,
+        .T_0 = 0,
+        // .T_0 = 400,
+        // .temp_scheduler = make_geometric_scheduler(0.999999),
+        .context = {.event=event, .max_D = get_max_D(event)},
+        .temp_scheduler = linear_scheduler,
+        .seed = rd(),
+        // .seed = 0,
     };
 
     vector<result> results;
     result best;
 
-    results = branch_rejoin_sa(Q, s, 8, 4, 1); // threads, branches, samples per thread
+    results = branch_rejoin_sa(Q, s, thread::hardware_concurrency(), 4, 1); // threads, branches, samples per thread
 
     best = results[0];
 
@@ -485,20 +491,20 @@ pair<clustering_result, clustering_result> run_vertexing(string filename) {
     //     cout << "track position: " << event.trackData[i].first << " vertex position: " << event.trackData[assignment[i]].first << '\n';
     // }
 
-    map<int, vector<int>> vertex_to_tracks;
-    for (int i = 0; i < assignment.size(); i++) {
-        vertex_to_tracks[assignment[i]].push_back(i);
-    }
+    // map<int, vector<int>> vertex_to_tracks;
+    // for (int i = 0; i < assignment.size(); i++) {
+    //     vertex_to_tracks[assignment[i]].push_back(i);
+    // }
 
-    for (const auto& [vertex, tracks] : vertex_to_tracks) {
-        cout << "Vertex " << vertex << " tracks (" << tracks.size() << "): \n";
-        for (int track : tracks) {
-            cout << track << " position: " << event.trackData[track].first 
-            // << " error: " << event.trackData[track].second
-            << '\n';
-        }
-        cout << '\n';
-    }
+    // for (const auto& [vertex, tracks] : vertex_to_tracks) {
+    //     cout << "Vertex " << vertex << " tracks (" << tracks.size() << "): \n";
+    //     for (int track : tracks) {
+    //         cout << track << " position: " << event.trackData[track].first 
+    //         // << " error: " << event.trackData[track].second
+    //         << '\n';
+    //     }
+    //     cout << '\n';
+    // }
 
     ftype ari = print_score(assignment, event);
 
@@ -519,12 +525,17 @@ pair<clustering_result, clustering_result> run_vertexing(string filename) {
         truth.push_back(i / 30);
     }
 
-    clustering_result sa_result = {filename, assignment, truth, vertices, event.vertices, best.energy, ground};
+    ftype seconds = chrono::duration_cast<chrono::milliseconds>(chrono::high_resolution_clock::now() - timer_start).count() / 1000.0;
+
+    clustering_result sa_result = {filename, assignment, truth, vertices, event.vertices, best.energy, ground, seconds};
     // json_append(sa_stream, sa_result);
 
     // logfile_append("sa.csv", filename, ari, best.energy - ground, mse, ground);
 
     // return 0; // skip da.
+
+    auto timer_mid = chrono::high_resolution_clock::now();
+    cout << "SA time elapsed: " << seconds << " seconds\n";
 
     cout << "running da\n";
 
@@ -547,10 +558,18 @@ pair<clustering_result, clustering_result> run_vertexing(string filename) {
     ftype da_mse = vertex_mse(da_vertices, event);
     cout << "DA MSE: " << da_mse << '\n';
 
-    clustering_result da_clustering_result = {filename, da_assignment, truth, da_vertices, event.vertices, da_energy, ground};
+    auto timer_end = chrono::high_resolution_clock::now();
+
+    seconds = chrono::duration_cast<chrono::milliseconds>(timer_end - timer_mid).count() / 1000.0;
+
+    clustering_result da_clustering_result = {filename, da_assignment, truth, da_vertices, event.vertices, da_energy, ground, seconds};
     // json_append(da_stream, da_clustering_result);
 
     // logfile_append("da.csv", filename, ari, da_energy - ground, da_mse, ground);
+
+    // cout << "SA time elapsed: " << chrono::duration_cast<chrono::seconds>(timer_mid - timer_start).count() << " seconds\n";
+    // cout << "DA time elapsed: " << chrono::duration_cast<chrono::seconds>(timer_end - timer_mid).count() << " seconds\n";
+    cout << "Total time elapsed: " << chrono::duration_cast<chrono::seconds>(timer_end - timer_start).count() << " seconds\n";
 
     return {sa_result, da_clustering_result};
 }
@@ -562,7 +581,7 @@ int main(int argc, char* argv[]) {
     }
 
     string filename_base = argv[1];
-    int num_files = 15;
+    int num_files = 8;
 
     cout << "Running " << num_files << " files\n";
 
