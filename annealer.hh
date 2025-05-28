@@ -9,7 +9,7 @@ using namespace std;
 using ftype = double; // use double for actual math stuff
 using solution_t = vector<uint8_t>;
 using qubo_t = map<pair<int, int>, ftype>;
-using scheduler_t = function<ftype(ftype T_0, ftype T, int iter, int max_iter)>;
+using scheduler_t = function<ftype(ftype T_0, ftype T_f, ftype T, int iter, int max_iter)>;
 
 struct event_t;
 
