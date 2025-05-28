@@ -2,8 +2,10 @@
 
 # Compiler settings
 CXX = g++
-#CXXFLAGS = -march=native -std=c++17 -Wall -pthread -Ofast
-CXXFLAGS = -march=native -std=c++17 -w -pthread -Ofast
+#CXXFLAGS = -march=native -std=c++14 -Wall -pthread -Ofast
+#CXXFLAGS = -fopenmp -g -fsanitize=address -march=native -std=c++14 -w -pthread -Ofast
+CXXFLAGS = -fopenmp -g -fsanitize=address -std=c++14 -w -O3 -march=native
+#CXXFLAGS = -march=native -std=c++14 -w -pthread -Ofast
 
 # Source files
 SRCS = annealer.cpp vertexing.cpp detanneal.cpp
@@ -17,15 +19,22 @@ all: $(TARGET)
 
 # Rule to create the executable
 $(TARGET): $(SRCS) $(HEADERS)
+	echo "Compiling $(SRCS)..."
 	$(CXX) $(CXXFLAGS) -o $@ $(SRCS)
+	echo "Build complete: $(TARGET)"
 
-# Run the program
+# Run the program 
 run: $(TARGET)
-	./$(TARGET)
+	echo "Running $(TARGET)..."
+	#./$(TARGET) $(THREADS) $(STAGES) $(SAMPLES_PER_THREAD) 5V_30T/events_5V_30T_ 5Vertices_30TracksPerVertex_ .json
+	./$(TARGET) $(THREADS) $(STAGES) $(SAMPLES_PER_THREAD) QPU_3Vertices_15TracksTotal_100Events/3Vertices_15Tracks_Event 3Vertices_5TracksPerVertex_ /serializedEvents.json
+	echo "Execution finished."
 
 # Clean up generated files
 clean:
+	echo "Cleaning up..."
 	rm -f $(TARGET)
+	echo "Clean complete."
 
 # Phony targets
 .PHONY: all clean run
