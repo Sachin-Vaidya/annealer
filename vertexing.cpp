@@ -4,6 +4,10 @@
 #include <map>
 #include <string>
 #include <assert.h>
+#include <algorithm>
+#include <unordered_map>
+#include <string>
+#include <cmath>
 
 #include "vertexing.hh"
 
@@ -65,6 +69,41 @@ vector<ftype> assignment_to_vertices(const vector<int> &assignment, const event_
 
     return vertices;
 }
+
+/*
+vector<ftype> assignment_to_vertices(const vector<int> &assignment, const event_t &event) {
+    vector<ftype> vertices(event.nV, 0);
+    vector<int> counts(event.nV, 0);
+
+    assert(assignment.size() == event.nT);
+
+    for (int i = 0; i < event.nT; i++) {
+        int vertex = assignment[i]; // index of vertex track i is assigned to
+        
+        // Check for invalid assignment (e.g., -1 or out of range)
+        if (vertex < 0 || vertex >= event.nV) {
+            // skip or handle as unassigned track
+            continue;
+        }
+        
+        vertices[vertex] += event.trackData[i].first; // z position of this track
+        counts[vertex]++;
+    }
+
+    for (int i = 0; i < vertices.size(); i++) {
+        if (counts[i] == 0) {
+            vertices[i] = -1;
+            continue;
+        }
+        vertices[i] /= counts[i];
+    }
+
+    // remove all -1s
+    vertices.erase(remove(vertices.begin(), vertices.end(), -1), vertices.end());
+
+    return vertices;
+}
+*/
 
 // both inputs should be sorted.
 ftype dp_matching(const vector<ftype> &A, const vector<ftype> &B) {
@@ -146,7 +185,7 @@ ftype print_score(const vector<int> &assignment, const event_t &event) {
     // print the ARI score of the assignment
     vector<int> true_labels(event.nT);
     for (int i = 0; i < event.nT; i++) {
-        true_labels[i] = i/30; // 30 tracks per vertex. TODO: magic number bad
+        true_labels[i] = i / round(event.nT/event.nV); // event.nT tracks per vertex. TODO: magic number bad
     }
 
     // // debug print true labels and assignment
@@ -161,6 +200,8 @@ ftype print_score(const vector<int> &assignment, const event_t &event) {
     //     cout << assignment[i] << " ";
     // }
     // cout << endl;
+    
+    cout<<"Number of tracks per vertex X Number of vertices = " << event.nT << ", Number of vertices = "<<event.nV<<endl;
 
     ftype ari = adjustedRandIndex(true_labels, assignment);
 
@@ -199,9 +240,7 @@ QUBO event_to_qubo(const event_t &event) {
         return track + nT * vertex;
     };
 
-    // ftype lambda = 1.0;
-    ftype lambda = 2;
-    // ftype lambda = 1.2;
+    ftype lambda = 1.2;
 
     ftype max_D = 0.0;
 
@@ -230,13 +269,13 @@ QUBO event_to_qubo(const event_t &event) {
         for (int i = 0; i < nT; ++i) {
             for (int j = i + 1; j < nT; ++j) {
                 ftype D_ij = D(trackData[i], trackData[j]);
-                // qubo_map[{idx(i, k), idx(j, k)}] += g(D_ij);
-                qubo_map[{idx(j, k), idx(i, k)}] += g(D_ij/max_D);
+                qubo_map[{idx(j, k), idx(i, k)}] += g(D_ij / max_D);
+                //qubo_map[{idx(j, k), idx(i, k)}] += g(D_ij);
             }
         }
     }
 
-    // lambda *= max_D;
+    //lambda *= max_D;
 
     // penalty
     for (int i = 0; i < nT; ++i) {
@@ -285,7 +324,7 @@ ftype evaluate_full_OTF(const solution_t &x, const event_t &event, ftype max_D) 
 }
 
 ftype evaluate_diff_on_the_fly(const solution_t &x, const event_t &event, int flip_idx, ftype max_D) {
-    ftype lambda = 2;
+    ftype lambda = 1.2;
     
     int nT = event.nT, nV = event.nV;
     int track = flip_idx % nT;
@@ -318,6 +357,7 @@ ftype evaluate_diff_on_the_fly(const solution_t &x, const event_t &event, int fl
         if (j == track) continue;
         int other_idx = idx(j, vertex);
         ftype term = g(D(event.trackData[track], event.trackData[j]) / max_D);
+        //ftype term = g(D(event.trackData[track], event.trackData[j]));
         diff += term * x[other_idx];
     }
     for (int v = 0; v < nV; v++) {
@@ -340,7 +380,7 @@ ftype ground_state(const QUBO &qubo, const event_t &event) {
     };
 
     for (int i = 0; i < event.nT; i++) {
-        int vertex = i / 30; // 30 tracks per vertex. TODO: magic number bad
+        int vertex = i / round(event.nT/event.nV); // event.nT tracks per vertex. TODO: magic number bad
         solution[idx(i, vertex)] = 1;
     }
     return qubo.evaluate(solution);
