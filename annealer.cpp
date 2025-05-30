@@ -27,7 +27,7 @@ double SA_timer_stop;
 
 std::vector<std::vector<int>> CorrectSolutionOrNot;
 int Correct_Solutions;
-std::vector<std::vector<ftype>> SATimePerAnneal;
+std::vector<ftype> SATimePerThreadsAnneal;
 
 // Function to check if a file exists
 bool file_exists(const std::string& filename) {
@@ -590,14 +590,15 @@ vector<result> multithreaded_sim_anneal(const QUBO& Q, const settings s, int num
     
     Correct_Solutions = 0;
     
-    SATimePerAnneal = std::vector<std::vector<ftype>>(num_threads, std::vector<ftype>(samples_per_thread, 0.0));
+    SATimePerThreadsAnneal = std::vector<ftype>(samples_per_thread, 0.0);
     CorrectSolutionOrNot = std::vector<std::vector<int>>(num_threads, std::vector<int>(samples_per_thread, 0));
     
-    #pragma omp parallel
+    for (int j = 0; j < samples_per_thread; j++) 
     {
-        int tid = omp_get_thread_num(); // actual thread ID
-
-        for (int j = 0; j < samples_per_thread; j++) {
+        SATimePerThreadsAnneal[j] = omp_get_wtime();
+        #pragma omp parallel
+        {
+            int tid = omp_get_thread_num(); // actual thread ID
             settings s_copy = s;
             s_copy.seed += tid * samples_per_thread + j; // different seed for each thread
             
@@ -608,13 +609,9 @@ vector<result> multithreaded_sim_anneal(const QUBO& Q, const settings s, int num
 
             
             
-            //Replace what's below if stages != 1 
-            SATimePerAnneal[tid][j] = omp_get_wtime();
-            results[tid * samples_per_thread + j] = sim_anneal(Q, s_copy, local_init_guess[tid], num_stage);
-            SATimePerAnneal[tid][j] = omp_get_wtime() - SATimePerAnneal[tid][j];
             
-            std::cout << "Thread " << tid << ", sample " << j << ", SA time: " << SATimePerAnneal[tid][j] << std::endl;
-            //Replace what's above if stages != 1 
+            results[tid * samples_per_thread + j] = sim_anneal(Q, s_copy, local_init_guess[tid], num_stage);
+            
             
             
             
@@ -629,6 +626,7 @@ vector<result> multithreaded_sim_anneal(const QUBO& Q, const settings s, int num
                 CorrectSolutionOrNot[tid][j] = 1;
             }
         }
+        SATimePerThreadsAnneal[j] = omp_get_wtime() - SATimePerThreadsAnneal[j];
     }
     
     for (int i = 0; i < num_threads; i++) {
@@ -1080,13 +1078,11 @@ int main(int argc, char* argv[]) {
     
     //cout << "SA TIME AVG = " << SA_TIME_AVG << ", total SAs = " << SAMPLES_PER_THREAD*STAGES*num_files <<endl;
     
-    ftype SAConvEff = double(total_Correct_Solutions*1./double(num_files*SAMPLES_PER_THREAD*THREADS));
+    ftype SAConvEff = double(total_Correct_Solutions/double(num_files*SAMPLES_PER_THREAD*THREADS));
     
     ftype SAavgTimePerAnneal = 0.0;
-    for (int i = 0; i < THREADS; i++) {
-        for (int j = 0; j < SAMPLES_PER_THREAD; j++) {
-            SAavgTimePerAnneal += SATimePerAnneal[i][j];
-        }
+    for (int j = 0; j < SAMPLES_PER_THREAD; j++) {
+        SAavgTimePerAnneal += SATimePerThreadsAnneal[j];
     }
     SAavgTimePerAnneal = double(SAavgTimePerAnneal/(double(THREADS*SAMPLES_PER_THREAD*num_files)));
     
@@ -1094,13 +1090,11 @@ int main(int argc, char* argv[]) {
     
     //Remove this below if stages != 1
     ftype SAavgTimePerAnneal_sigma = 0.;
-    for (int i = 0; i < THREADS; i++) {
-        for (int j = 0; j < SAMPLES_PER_THREAD; j++) {
-            cout << "printint times: " <<SATimePerAnneal[i][j] <<", "<<SAavgTimePerAnneal<<endl;
-            SAavgTimePerAnneal_sigma += pow(SATimePerAnneal[i][j] - SAavgTimePerAnneal,2.);
-        }
+    for (int j = 0; j < SAMPLES_PER_THREAD; j++) {
+        cout << "printint times: " <<SATimePerThreadsAnneal[j]/THREADS <<", "<<SAavgTimePerAnneal<<endl;
+        SAavgTimePerAnneal_sigma += pow(SATimePerThreadsAnneal[j]/THREADS - SAavgTimePerAnneal,2.);
     }
-    SAavgTimePerAnneal_sigma = sqrt(double(SAavgTimePerAnneal_sigma/double(num_files*SAMPLES_PER_THREAD*THREADS - 1)));
+    SAavgTimePerAnneal_sigma = sqrt(double(SAavgTimePerAnneal_sigma*THREADS/double(num_files*SAMPLES_PER_THREAD*THREADS - 1)));
     //Remove this above if stages != 1
     
     
