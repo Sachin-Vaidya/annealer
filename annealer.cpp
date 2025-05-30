@@ -19,9 +19,21 @@
 int THREADS;
 int STAGES;
 int SAMPLES_PER_THREAD;
+int SWEEPS;
 
 double Temperature;
+double SA_timer_start;
+double SA_timer_stop;
+
+std::vector<std::vector<int>> CorrectSolutionOrNot;
 int Correct_Solutions;
+std::vector<std::vector<ftype>> SATimePerAnneal;
+
+// Function to check if a file exists
+bool file_exists(const std::string& filename) {
+    struct stat buffer;
+    return (stat(filename.c_str(), &buffer) == 0);
+}
 
 ostream& operator << (ostream& os, const solution_t& x) {
     for (auto xi : x) os << xi << ' ';
@@ -578,15 +590,50 @@ vector<result> multithreaded_sim_anneal(const QUBO& Q, const settings s, int num
     
     Correct_Solutions = 0;
     
-    #pragma omp parallel for
-    for (int i = 0; i < num_threads; i++) {
+    SATimePerAnneal = std::vector<std::vector<ftype>>(num_threads, std::vector<ftype>(samples_per_thread, 0.0));
+    CorrectSolutionOrNot = std::vector<std::vector<int>>(num_threads, std::vector<int>(samples_per_thread, 0));
+    
+    #pragma omp parallel
+    {
+        int tid = omp_get_thread_num(); // actual thread ID
+
         for (int j = 0; j < samples_per_thread; j++) {
             settings s_copy = s;
-            s_copy.seed += i * samples_per_thread + j; // different seed for each thread
-            results[i * samples_per_thread + j] = sim_anneal(Q, s_copy, local_init_guess[i], num_stage);
-            if (abs(ground - results[i * samples_per_thread + j].energy) < 1.e-9) {
-                Correct_Solutions += 1;    
+            s_copy.seed += tid * samples_per_thread + j; // different seed for each thread
+            
+            #ifdef __linux__
+            int cpu = sched_getcpu();
+            printf("Thread %d handling, sample %d running on CPU %d\n", tid, j, cpu);
+            #endif
+
+            
+            
+            //Replace what's below if stages != 1 
+            SATimePerAnneal[tid][j] = omp_get_wtime();
+            results[tid * samples_per_thread + j] = sim_anneal(Q, s_copy, local_init_guess[tid], num_stage);
+            SATimePerAnneal[tid][j] = omp_get_wtime() - SATimePerAnneal[tid][j];
+            
+            std::cout << "Thread " << tid << ", sample " << j << ", SA time: " << SATimePerAnneal[tid][j] << std::endl;
+            //Replace what's above if stages != 1 
+            
+            
+            
+            
+            //what's given below
+            //results[i * samples_per_thread + j] = sim_anneal(Q, s_copy, local_init_guess[i], num_stage);
+            
+            
+            
+            
+            if (abs(ground - results[tid * samples_per_thread + j].energy) < 1.e-9) {
+                CorrectSolutionOrNot[tid][j] = 1;
             }
+        }
+    }
+    
+    for (int i = 0; i < num_threads; i++) {
+        for (int j = 0; j < samples_per_thread; j++) {
+            Correct_Solutions += CorrectSolutionOrNot[i][j];
         }
     }
     
@@ -784,7 +831,7 @@ pair<clustering_result, clustering_result> run_vertexing(string filename) {
     random_device rd;
 
     settings s = {
-        .max_iter = 50,
+        .max_iter = SWEEPS,
         // .T_0 = 0.26*2,///10000000,
         .T_0 = 10,
         // .T_0 = 400,
@@ -931,11 +978,37 @@ pair<clustering_result, clustering_result> run_vertexing(string filename) {
 
 bool directoryExists(const std::string& path) {
     struct stat info;
-    return stat(path.c_str(), &info) == 0 && (info.st_mode & S_IFDIR);
+    return stat(path.c_str(), &info) == 0 && S_ISDIR(info.st_mode);
+}
+
+bool createDirectoriesRecursively(const std::string& path) {
+    if (directoryExists(path)) {
+        return true; // Already exists
+    }
+
+    size_t pos = 0;
+    do {
+        pos = path.find_first_of('/', pos + 1);
+        std::string subdir = path.substr(0, pos == std::string::npos ? path.length() : pos);
+
+        if (!directoryExists(subdir)) {
+            if (mkdir(subdir.c_str(), 0777) != 0) {
+                if (errno == EEXIST) {
+                    // Directory was created by another process/thread after the check, safe to continue
+                    continue;
+                } else {
+                    perror(("mkdir failed for " + subdir).c_str());
+                    return false;
+                }
+            }
+        }
+    } while (pos != std::string::npos);
+
+    return true;
 }
 
 int main(int argc, char* argv[]) {
-    if (argc != 7) { // argv[0] is program name, argv[1..3] are THREADS, STAGES, SAMPLES_PER_THREAD
+    if (argc != 8) { // argv[0] is program name, argv[1..4] are THREADS, STAGES, SAMPLES_PER_THREAD, SWEEPS
         std::cerr << "Usage: ./annealer <THREADS> <STAGES> <SAMPLES_PER_THREAD> <input_filename> <output_filenames_prefix> <name_or_extension>" << std::endl;
         return 1;
     }
@@ -944,10 +1017,11 @@ int main(int argc, char* argv[]) {
     THREADS = std::atoi(argv[1]);
     STAGES = std::atoi(argv[2]);
     SAMPLES_PER_THREAD = std::atoi(argv[3]);
+    SWEEPS = std::atoi(argv[4]);
 
     // Print received values (for debugging or logging)
     std::cout << "Received: THREADS=" << THREADS << ", STAGES=" << STAGES 
-              << ", SAMPLES_PER_THREAD=" << SAMPLES_PER_THREAD << std::endl;
+              << ", SAMPLES_PER_THREAD=" << SAMPLES_PER_THREAD << ", SWEEPS=" << SWEEPS << std::endl;
     
     double SA_TIME_AVG = 0.;
     
@@ -955,28 +1029,23 @@ int main(int argc, char* argv[]) {
     
     int total_Correct_Solutions = 0;
     
-    string filename_base = argv[4];
+    string filename_base = argv[5];
     
-    string extension = argv[6];
+    string extension = argv[7];
     
-    std::string dir_name_str = std::string(argv[5]) + std::to_string(THREADS) + "threads_" + std::to_string(STAGES) + "stages_" + std::to_string(SAMPLES_PER_THREAD) + "SamplesPerThread";
-    const char* dirName = dir_name_str.c_str();
-    if (!directoryExists(dirName)) {
-        if (mkdir(dirName, 0755) == 0) {
-            std::cout << "Directory created successfully.\n";
-        } else {
-            perror("mkdir failed");
-        }
+    std::string dir_name_str = std::string(argv[6]) + "/" + std::to_string(THREADS) + "threads_" + std::to_string(STAGES) + "stages_" + std::to_string(SAMPLES_PER_THREAD) + "SamplesPerThread_" + std::to_string(SWEEPS) + "sweeps";
+    if (createDirectoriesRecursively(dir_name_str)) {
+        std::cout << "Directories created or already existed.\n";
     } else {
-        std::cout << "Directory already exists.\n";
+        std::cerr << "Failed to create directories.\n";
     }
     
-    int num_files = 10;
+    int num_files = 1;
 
     cout << "Running " << num_files << " files\n";
     
-    string SA_out_filename = argv[5]+to_string(THREADS)+"threads_"+to_string(STAGES)+"stages_"+to_string(SAMPLES_PER_THREAD)+"SamplesPerThread/sa_w_omp_min_dunn.json";
-    string DA_out_filename = argv[5]+to_string(THREADS)+"threads_"+to_string(STAGES)+"stages_"+to_string(SAMPLES_PER_THREAD)+"SamplesPerThread/da_min_dunn.json";
+    string SA_out_filename = dir_name_str + "/sa_w_omp_min_dunn.json";
+    string DA_out_filename = dir_name_str + "/da_min_dunn.json";
     
     ofstream sa_stream(SA_out_filename);
     ofstream da_stream(DA_out_filename);
@@ -1011,11 +1080,70 @@ int main(int argc, char* argv[]) {
     
     //cout << "SA TIME AVG = " << SA_TIME_AVG << ", total SAs = " << SAMPLES_PER_THREAD*STAGES*num_files <<endl;
     
-    sa_stream << "\n total correct solutions: " << total_Correct_Solutions << ", SA Convergence Efficiency: " << double(total_Correct_Solutions*1./double(num_files*SAMPLES_PER_THREAD*THREADS));
-    sa_stream << "\n Average SA time: " << SA_TIME_AVG/(double(SAMPLES_PER_THREAD*num_files));
+    ftype SAConvEff = double(total_Correct_Solutions*1./double(num_files*SAMPLES_PER_THREAD*THREADS));
+    
+    ftype SAavgTimePerAnneal = 0.0;
+    for (int i = 0; i < THREADS; i++) {
+        for (int j = 0; j < SAMPLES_PER_THREAD; j++) {
+            SAavgTimePerAnneal += SATimePerAnneal[i][j];
+        }
+    }
+    SAavgTimePerAnneal = double(SAavgTimePerAnneal/(double(THREADS*SAMPLES_PER_THREAD*num_files)));
+    
+    SA_TIME_AVG = double(SA_TIME_AVG/(double(THREADS*SAMPLES_PER_THREAD*num_files)));
+    
+    //Remove this below if stages != 1
+    ftype SAavgTimePerAnneal_sigma = 0.;
+    for (int i = 0; i < THREADS; i++) {
+        for (int j = 0; j < SAMPLES_PER_THREAD; j++) {
+            cout << "printint times: " <<SATimePerAnneal[i][j] <<", "<<SAavgTimePerAnneal<<endl;
+            SAavgTimePerAnneal_sigma += pow(SATimePerAnneal[i][j] - SAavgTimePerAnneal,2.);
+        }
+    }
+    SAavgTimePerAnneal_sigma = sqrt(double(SAavgTimePerAnneal_sigma/double(num_files*SAMPLES_PER_THREAD*THREADS - 1)));
+    //Remove this above if stages != 1
+    
+    
+    
+    
+    
+    
+    sa_stream << "\n total correct solutions: " << total_Correct_Solutions << ", SA Convergence Efficiency: " << SAConvEff;
+    sa_stream << "\n Average SA time: " << SAavgTimePerAnneal;
     
     json_close(sa_stream);
     json_close(da_stream);
+    
+    std::string original = "SA_ConvergenceEfficiency_and_TimePerAnneal.txt";
+    std::string renamed_original = std::string(argv[6])+"/"+std::string(argv[6])+"SA_ConvergenceEfficiency_and_TimePerAnneal.txt";
 
+    // Check if original file exists
+    if (file_exists(original)) {
+        std::cout << "Original file exists. Renaming to renamed_original.\n";
+        if (std::rename(original.c_str(), renamed_original.c_str()) != 0) {
+            std::perror("Error renaming file");
+            return 1;
+        }
+        else {
+            std::cout << "File moved and renamed successfully" << endl;
+        }
+    } else if (file_exists(renamed_original)) {
+        std::cout << "Original file not found. Using existing renamed_original.\n";
+    } else {
+        std::cerr << "Neither original nor renamed_original file exists. Nothing to append to.\n";
+        return 1;
+    }
+
+    // Open the renamed_original file in append mode
+    std::ofstream outFile(renamed_original, std::ios::app);
+    if (!outFile) {
+        std::cerr << "Failed to open file for appending.\n";
+        return 1;
+    }
+
+    // Append data
+    outFile << THREADS <<"\t"<< STAGES << "\t" << SWEEPS << "\t" << SAConvEff << "\t" << SA_TIME_AVG << "\t" << SAavgTimePerAnneal << "\t" << SAavgTimePerAnneal_sigma << endl;
+    outFile.close();
+    
     return 0;
 }
