@@ -4,7 +4,7 @@
 CXX = g++
 #CXXFLAGS = -march=native -std=c++14 -Wall -pthread -Ofast
 #CXXFLAGS = -fopenmp -g -fsanitize=address -march=native -std=c++14 -w -pthread -Ofast
-CXXFLAGS = -fopenmp -g -fsanitize=address -std=c++14 -w -O3 -march=native
+CXXFLAGS = -fopenmp -g -std=c++14 -w -O2 -march=native
 #CXXFLAGS = -march=native -std=c++14 -w -pthread -Ofast
 
 # Source files
@@ -26,8 +26,8 @@ $(TARGET): $(SRCS) $(HEADERS)
 # Run the program 
 run: $(TARGET)
 	echo "Running $(TARGET)..."
-	#./$(TARGET) $(THREADS) $(STAGES) $(SAMPLES_PER_THREAD) 5V_30T/events_5V_30T_ 5Vertices_30TracksPerVertex_ .json
-	./$(TARGET) $(THREADS) $(STAGES) $(SAMPLES_PER_THREAD) QPU_3Vertices_15TracksTotal_100Events/3Vertices_15Tracks_Event 3Vertices_5TracksPerVertex_ /serializedEvents.json
+	#./$(TARGET) $(THREADS) $(STAGES) $(SAMPLES_PER_THREAD) $(SWEEPS) 5V_30T/events_5V_30T_ 5Vertices_30TracksPerVertex .json
+	./$(TARGET) $(THREADS) $(STAGES) $(SAMPLES_PER_THREAD) $(SWEEPS) QPU_3Vertices_15TracksTotal_100Events/3Vertices_15Tracks_Event 3Vertices_5TracksPerVertex /serializedEvents.json
 	echo "Execution finished."
 
 # Clean up generated files
