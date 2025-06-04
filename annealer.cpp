@@ -232,7 +232,7 @@ result sim_anneal(const QUBO& Q, const settings s, const solution_t init_guess =
         T = s.temp_scheduler(s.T_0, s.T_f, T, iter, s.max_iter, num_stage);
         Temperature = T;
         
-        cout << "\nTemperature calculation verification: " << num_stage << ", " << T << ", " << Temperature << endl;
+        //cout << "\nTemperature calculation verification: " << num_stage << ", " << T << ", " << Temperature << endl;
     }
 
     // re-evaluate best solution to eliminate float point errors
@@ -284,7 +284,7 @@ result sim_anneal(const QUBO& Q, const settings s, const solution_t init_guess =
 
     for (int iter = 0; iter < s.max_iter; iter++) {
         if (iter % 1000 == 0 && s.dolog) {
-            // cout << "Iter: " << iter << " Energy: " << f_x << " T: " << T << '\n';
+            // //cout << "Iter: " << iter << " Energy: " << f_x << " T: " << T << '\n';
         }
 
         // SWEEP through all bits
@@ -317,7 +317,7 @@ result sim_anneal(const QUBO& Q, const settings s, const solution_t init_guess =
         T = s.temp_scheduler(s.T_0, s.T_f, T, iter, s.max_iter, num_stage);
         Temperature = T;
 
-        cout << "\nTemperature calculation verification: " << num_stage << ", " << T << ", " << Temperature << endl;
+        //cout << "\nTemperature calculation verification: " << num_stage << ", " << T << ", " << Temperature << endl;
     }
 
     best_f_x = Q.evaluate(best_x); // cleanup
@@ -354,7 +354,7 @@ result sim_anneal(const QUBO& Q, const settings s, const solution_t init_guess =
     double T = s.T_0;
     for (int iter = 0; iter < s.max_iter; iter++) {
         if (iter % 10000 == 0 && s.dolog) {
-            cout << "Iter: " << iter << " Energy: " << best_f_x << " T: " << T << '\n';
+            //cout << "Iter: " << iter << " Energy: " << best_f_x << " T: " << T << '\n';
         }
 
         solution_t x_prime = x;
@@ -378,7 +378,7 @@ result sim_anneal(const QUBO& Q, const settings s, const solution_t init_guess =
         T = s.temp_scheduler(s.T_0, s.T_f, T, iter, s.max_iter, num_stage);
         Temperature = T;
 
-        cout << "\nTemperature calculation verification: " << num_stage << ", " << T << ", " << Temperature << endl;
+        //cout << "\nTemperature calculation verification: " << num_stage << ", " << T << ", " << Temperature << endl;
     }
 
     best_f_x = Q.evaluate(best_x); // cleanup
@@ -406,9 +406,9 @@ result sim_anneal(const QUBO& Q, const settings s, const solution_t init_guess =
     double T = s.T_0;
 
     for (int iter = 0; iter < s.max_iter; iter++) {
-        if (iter % 1000 == 0 && s.dolog) {
-            cout << "Iter: " << iter << " Energy: " << best_f_x << " T: " << T << '\n';
-        }
+        /*if (iter % 1000 == 0 && s.dolog) {
+            //cout << "Iter: " << iter << " Energy: " << best_f_x << " T: " << T << '\n';
+        }*/
 
         for (int i = 0; i < static_cast<int>(x.size()); i++) {
             double f_x_prime = Q.evaluateDiff(x, i) + f_x;
@@ -425,9 +425,9 @@ result sim_anneal(const QUBO& Q, const settings s, const solution_t init_guess =
         }
 
         T = s.temp_scheduler(s.T_0, s.T_f, T, iter, s.max_iter, num_stage);
-        Temperature = T;
+        //Temperature = T;
 
-        cout << "\nTemperature calculation verification: " << num_stage << ", " << T << ", " << Temperature << endl;
+        //cout << "\nTemperature calculation verification: " << num_stage << ", " << T << ", " << Temperature << endl;
     }
 
     best_f_x = Q.evaluate(best_x); // cleanup
@@ -436,106 +436,6 @@ result sim_anneal(const QUBO& Q, const settings s, const solution_t init_guess =
 
 //=================================== ====================================== =========================================//
 
-/*
-//==================================================== SA* ============================================================//
-result sim_anneal(const QUBO& Q, const settings s, const solution_t init_guess = {}, int num_stage=1) { // intentionally get copy of settings
-    mt19937 gen(s.seed);
-    uniform_real_distribution<> dis(0.0, 1.0);
-
-    int nT = s.context.event.nT; 
-    int nV = s.context.event.nV;
-
-    uniform_int_distribution<> t_dis(0, nT - 1);
-    uniform_int_distribution<> v_dis(0, nV - 1);
-
-    solution_t x(nT * nV, 0);
-
-    auto bit_idx = [nT](int t, int v) {
-        return t + nT * v;
-    };
-
-    // helper.
-    vector<int> track_to_vertex(nT, -1);
-
-    // for each track, assign random vertex
-    for (int t = 0; t < nT; t++) {
-        int v = v_dis(gen);
-        track_to_vertex[t] = v;
-        x[bit_idx(t, v)] = 1;
-    }
-
-    if (!init_guess.empty()) {
-        x = init_guess;
-
-        for (int t = 0; t < nT; t++) {
-            for (int v = 0; v < nV; v++) {
-                if (x[bit_idx(t, v)]) {
-                    track_to_vertex[t] = v;
-                    // break;
-                }
-            }
-        }
-
-        cout << "Using init guess\n";
-    }
-
-    ftype f_x = Q.evaluate(x);
-
-    solution_t best_x = x;
-    ftype best_f_x = f_x;
-
-    ftype T = s.T_0;
-    for (int iter = 0; iter < s.max_iter; iter++) {
-        if (iter % 1000 == 0 && s.dolog) {
-            cout << "Iter: " << iter << " Energy: " << f_x << " T: " << T << '\n';
-        }
-
-        int t = t_dis(gen); // pick random track to change vertex of
-        
-        int old_v = track_to_vertex[t];
-        int new_v = v_dis(gen); // pick random new vertex for track
-
-        // if (old_v == new_v) continue;
-
-        int old_bit = bit_idx(t, old_v);
-        int new_bit = bit_idx(t, new_v);
-
-        solution_t x_prime = x;
-
-        ftype delta = Q.evaluateDiff(x_prime, old_bit);
-
-        x_prime[old_bit] = 0;
-
-        delta += Q.evaluateDiff(x_prime, new_bit);
-
-        x_prime[new_bit] = 1;
-
-        ftype f_x_prime = f_x + delta;
-
-        if (f_x_prime < f_x || (T != 0 && dis(gen) < exp((f_x - f_x_prime) / T))) {
-            x = x_prime;
-            f_x = f_x_prime;
-            track_to_vertex[t] = new_v;
-        }
-
-        if (f_x < best_f_x) {
-            best_x = x;
-            best_f_x = f_x;
-        }
-
-        T = s.temp_scheduler(s.T_0, s.T_f, T, iter, s.max_iter, num_stage);
-        Temperature = T;
-        
-        cout << "\nTemperature calculation verification: " << num_stage << ", " << T << ", " << Temperature << endl;
-    }
-
-    // re-evaluate best solution to eliminate float point errors
-    best_f_x = Q.evaluate(best_x);
-
-    return {best_x, best_f_x};
-}
-//==================================================== === ============================================================//
-*/
 
 void assert_lower_triangular(const qubo_t& Q) {
     for (const auto& entry : Q) {
@@ -590,12 +490,12 @@ vector<result> multithreaded_sim_anneal(const QUBO& Q, const settings s, int num
     
     Correct_Solutions = 0;
     
-    SATimePerThreadsAnneal = std::vector<ftype>(samples_per_thread, 0.0);
+    //SATimePerThreadsAnneal = std::vector<ftype>(samples_per_thread, 0.0);
     CorrectSolutionOrNot = std::vector<std::vector<int>>(num_threads, std::vector<int>(samples_per_thread, 0));
     
     for (int j = 0; j < samples_per_thread; j++) 
     {
-        SATimePerThreadsAnneal[j] = omp_get_wtime();
+        //SATimePerThreadsAnneal[j] = omp_get_wtime();
         #pragma omp parallel
         {
             int tid = omp_get_thread_num(); // actual thread ID
@@ -615,18 +515,11 @@ vector<result> multithreaded_sim_anneal(const QUBO& Q, const settings s, int num
             
             
             
-            
-            //what's given below
-            //results[i * samples_per_thread + j] = sim_anneal(Q, s_copy, local_init_guess[i], num_stage);
-            
-            
-            
-            
             if (abs(ground - results[tid * samples_per_thread + j].energy) < 1.e-9) {
                 CorrectSolutionOrNot[tid][j] = 1;
             }
         }
-        SATimePerThreadsAnneal[j] = omp_get_wtime() - SATimePerThreadsAnneal[j];
+        //SATimePerThreadsAnneal[j] = omp_get_wtime() - SATimePerThreadsAnneal[j];
     }
     
     for (int i = 0; i < num_threads; i++) {
@@ -638,7 +531,7 @@ vector<result> multithreaded_sim_anneal(const QUBO& Q, const settings s, int num
     /*Correct_Solutions = 0;
     for (int i = 0; i < num_threads; i++) {
         for (int j = 0; j < samples_per_thread; j++) {
-            cout << "Correct Solutions: " << i <<", " << j << ", " << ground << ", " << results[i * samples_per_thread + j].energy <<endl;
+            //cout << "Correct Solutions: " << i <<", " << j << ", " << ground << ", " << results[i * samples_per_thread + j].energy <<endl;
             if (abs(ground - results[i * samples_per_thread + j].energy) < 1.e-9) {
                 Correct_Solutions += 1;    
             }
@@ -658,10 +551,12 @@ vector<result> multithreaded_sim_anneal(const QUBO& Q, const settings s, int num
 vector<solution_t> best_effort_unique(const vector<result>& results, int n) {
     if (results.empty()) return {};
     // takes sorted list and replaces bottom half with top half
+    
     vector<solution_t> newresults(n);
     for (int i = 0; i < n; i++) {
         newresults[i] = results[i % (results.size() / 2)].solution;
     }
+    
     return newresults;
 }
 
@@ -674,9 +569,9 @@ vector<result> branch_rejoin_sa(const QUBO& Q, const settings s, int num_threads
         results = multithreaded_sim_anneal(Q, modified_settings, num_threads, samples_per_thread, best_effort_unique(results, num_threads), filename, i);
         //cout << "Branch " << i << " best energy: " << results[0].energy << '\n';
         //cout << "Branch " << i << " worst energy: " << results.back().energy << '\n';
-        cout << "Temperature at the end of stage " << i << ": " << Temperature <<endl;
+        //cout << "Temperature at the end of stage " << i << ": " << Temperature <<endl;
     }
-    cout << "Max Iter for stage: " << modified_settings.max_iter <<endl;
+    //cout << "Max Iter for stage: " << modified_settings.max_iter <<endl;
     return results;
 }
 
@@ -694,8 +589,8 @@ scheduler_t make_geometric_scheduler(ftype alpha) {
 
 
 // void trial(solution_t x, const QUBO& Q) {
-//     cout << "For solution: " << x << endl;
-//     cout << "Energy: " << Q.evaluate(x) << endl << endl;
+//     //cout << "For solution: " << x << endl;
+//     //cout << "Energy: " << Q.evaluate(x) << endl << endl;
 // }
 
 void present_results(const vector<result>& results, bool show_sols = true, int precision = 5) {
@@ -717,7 +612,7 @@ void present_results(const vector<result>& results, bool show_sols = true, int p
 
     //cout << "Best energy: " << results[0].energy << '\n';
     //cout << "Worst energy: " << results.back().energy << '\n';
-    // cout << "Best solution: " << results[0].solution << '\n';
+    // //cout << "Best solution: " << results[0].solution << '\n';
 
     //cout << '\n';
 
@@ -824,7 +719,7 @@ pair<clustering_result, clustering_result> run_vertexing(string filename) {
 
     QUBO Q = OTF ? QUBO(event) : event_to_qubo(event);
 
-    // cout << Q;
+    // //cout << Q;
 
     random_device rd;
 
@@ -869,11 +764,11 @@ pair<clustering_result, clustering_result> run_vertexing(string filename) {
     // best = results[0];
 
     // if (results[0].energy < best.energy) {
-    //     cout << "choosing multithreaded result\n";
+    //     //cout << "choosing multithreaded result\n";
     //     best = results[0];
     // }
 
-    // cout << "\nMultithreaded (approach C) results: " << '\n';
+    // //cout << "\nMultithreaded (approach C) results: " << '\n';
 
     // present_results(results, false);
 
@@ -886,8 +781,8 @@ pair<clustering_result, clustering_result> run_vertexing(string filename) {
     //cout << "Assignment: \n";
 
     // for (int i = 0; i < assignment.size(); i++) {
-    //     cout << "Track " << i << " -> Vertex " << assignment[i] << '\n';
-    //     cout << "track position: " << event.trackData[i].first << " vertex position: " << event.trackData[assignment[i]].first << '\n';
+    //     //cout << "Track " << i << " -> Vertex " << assignment[i] << '\n';
+    //     //cout << "track position: " << event.trackData[i].first << " vertex position: " << event.trackData[assignment[i]].first << '\n';
     // }
 
     // map<int, vector<int>> vertex_to_tracks;
@@ -896,13 +791,13 @@ pair<clustering_result, clustering_result> run_vertexing(string filename) {
     // }
 
     // for (const auto& [vertex, tracks] : vertex_to_tracks) {
-    //     cout << "Vertex " << vertex << " tracks (" << tracks.size() << "): \n";
+    //     //cout << "Vertex " << vertex << " tracks (" << tracks.size() << "): \n";
     //     for (int track : tracks) {
-    //         cout << track << " position: " << event.trackData[track].first 
+    //         //cout << track << " position: " << event.trackData[track].first 
     //         // << " error: " << event.trackData[track].second
     //         << '\n';
     //     }
-    //     cout << '\n';
+    //     //cout << '\n';
     // }
 
     ftype ari = print_score(assignment, event);
@@ -937,7 +832,7 @@ pair<clustering_result, clustering_result> run_vertexing(string filename) {
     auto timer_mid = chrono::high_resolution_clock::now();
     //cout << "SA time elapsed: " << seconds << " seconds\n";
 
-    cout << "running da\n";
+    //cout << "running da\n";
 
     pair<vector<int>, vector<ftype>> da_result = runDA(event);
 
@@ -967,8 +862,8 @@ pair<clustering_result, clustering_result> run_vertexing(string filename) {
 
     // logfile_append("da.csv", filename, ari, da_energy - ground, da_mse, ground);
 
-    // cout << "SA time elapsed: " << chrono::duration_cast<chrono::seconds>(timer_mid - timer_start).count() << " seconds\n";
-    // cout << "DA time elapsed: " << chrono::duration_cast<chrono::seconds>(timer_end - timer_mid).count() << " seconds\n";
+    // //cout << "SA time elapsed: " << chrono::duration_cast<chrono::seconds>(timer_mid - timer_start).count() << " seconds\n";
+    // //cout << "DA time elapsed: " << chrono::duration_cast<chrono::seconds>(timer_end - timer_mid).count() << " seconds\n";
     //cout << "Total time elapsed: " << chrono::duration_cast<chrono::seconds>(timer_end - timer_start).count() << " seconds\n";
 
     return {sa_result, da_clustering_result};
@@ -1018,8 +913,7 @@ int main(int argc, char* argv[]) {
     SWEEPS = std::atoi(argv[4]);
 
     // Print received values (for debugging or logging)
-    std::cout << "Received: THREADS=" << THREADS << ", STAGES=" << STAGES 
-              << ", SAMPLES_PER_THREAD=" << SAMPLES_PER_THREAD << ", SWEEPS=" << SWEEPS << std::endl;
+    //std::cout << "Received: THREADS=" << THREADS << ", STAGES=" << STAGES << ", SAMPLES_PER_THREAD=" << SAMPLES_PER_THREAD << ", SWEEPS=" << SWEEPS << std::endl;
     
     double SA_TIME_AVG = 0.;
     
@@ -1033,14 +927,14 @@ int main(int argc, char* argv[]) {
     
     std::string dir_name_str = std::string(argv[6]) + "/" + std::to_string(THREADS) + "threads_" + std::to_string(STAGES) + "stages_" + std::to_string(SAMPLES_PER_THREAD) + "SamplesPerThread_" + std::to_string(SWEEPS) + "sweeps";
     if (createDirectoriesRecursively(dir_name_str)) {
-        std::cout << "Directories created or already existed.\n";
+        //std::cout << "Directories created or already existed.\n";
     } else {
         std::cerr << "Failed to create directories.\n";
     }
     
     int num_files = 1;
 
-    cout << "Running " << num_files << " files\n";
+    //cout << "Running " << num_files << " files\n";
     
     string SA_out_filename = dir_name_str + "/sa_w_omp_min_dunn.json";
     string DA_out_filename = dir_name_str + "/da_min_dunn.json";
@@ -1052,7 +946,7 @@ int main(int argc, char* argv[]) {
     json_init(da_stream);
 
     for (int i = 1; i <= num_files; i++) {
-        cout << "Running file " << i << '\n';
+        //cout << "Running file " << i << '\n';
 
         string filename = filename_base+to_string(i)+extension;
         
@@ -1073,28 +967,28 @@ int main(int argc, char* argv[]) {
         sa_stream << "Temperature: " << Temperature << endl;
         sa_stream << "Number of Correct Solutions: " << Correct_Solutions <<endl;
         
-        cout << "Done with file " << i << '\n';
+        //cout << "Done with file " << i << '\n';
     }
     
     //cout << "SA TIME AVG = " << SA_TIME_AVG << ", total SAs = " << SAMPLES_PER_THREAD*STAGES*num_files <<endl;
     
     ftype SAConvEff = double(total_Correct_Solutions/double(num_files*SAMPLES_PER_THREAD*THREADS));
     
-    ftype SAavgTimePerAnneal = 0.0;
+    /*ftype SAavgTimePerAnneal = 0.0;
     for (int j = 0; j < SAMPLES_PER_THREAD; j++) {
         SAavgTimePerAnneal += SATimePerThreadsAnneal[j];
     }
-    SAavgTimePerAnneal = double(SAavgTimePerAnneal/(double(THREADS*SAMPLES_PER_THREAD*num_files)));
+    SAavgTimePerAnneal = double(SAavgTimePerAnneal/(double(THREADS*SAMPLES_PER_THREAD*num_files)));*/
     
     SA_TIME_AVG = double(SA_TIME_AVG/(double(THREADS*SAMPLES_PER_THREAD*num_files)));
     
     //Remove this below if stages != 1
-    ftype SAavgTimePerAnneal_sigma = 0.;
+    /*ftype SAavgTimePerAnneal_sigma = 0.;
     for (int j = 0; j < SAMPLES_PER_THREAD; j++) {
-        cout << "printint times: " <<SATimePerThreadsAnneal[j]/THREADS <<", "<<SAavgTimePerAnneal<<endl;
+        //cout << "printint times: " <<SATimePerThreadsAnneal[j]/THREADS <<", "<<SAavgTimePerAnneal<<endl;
         SAavgTimePerAnneal_sigma += pow(SATimePerThreadsAnneal[j]/THREADS - SAavgTimePerAnneal,2.);
     }
-    SAavgTimePerAnneal_sigma = sqrt(double(SAavgTimePerAnneal_sigma*THREADS/double(num_files*SAMPLES_PER_THREAD*THREADS - 1)));
+    SAavgTimePerAnneal_sigma = sqrt(double(SAavgTimePerAnneal_sigma*THREADS/double(num_files*SAMPLES_PER_THREAD*THREADS - 1)));*/
     //Remove this above if stages != 1
     
     
@@ -1103,7 +997,7 @@ int main(int argc, char* argv[]) {
     
     
     sa_stream << "\n total correct solutions: " << total_Correct_Solutions << ", SA Convergence Efficiency: " << SAConvEff;
-    sa_stream << "\n Average SA time: " << SAavgTimePerAnneal;
+    //sa_stream << "\n Average SA time: " << SAavgTimePerAnneal;
     
     json_close(sa_stream);
     json_close(da_stream);
@@ -1113,16 +1007,16 @@ int main(int argc, char* argv[]) {
 
     // Check if original file exists
     if (file_exists(original)) {
-        std::cout << "Original file exists. Renaming to renamed_original.\n";
+        //std::cout << "Original file exists. Renaming to renamed_original.\n";
         if (std::rename(original.c_str(), renamed_original.c_str()) != 0) {
             std::perror("Error renaming file");
             return 1;
         }
         else {
-            std::cout << "File moved and renamed successfully" << endl;
+            //std::cout << "File moved and renamed successfully" << endl;
         }
     } else if (file_exists(renamed_original)) {
-        std::cout << "Original file not found. Using existing renamed_original.\n";
+        //std::cout << "Original file not found. Using existing renamed_original.\n";
     } else {
         std::cerr << "Neither original nor renamed_original file exists. Nothing to append to.\n";
         return 1;
@@ -1136,7 +1030,7 @@ int main(int argc, char* argv[]) {
     }
 
     // Append data
-    outFile << THREADS <<"\t"<< STAGES << "\t" << SWEEPS << "\t" << SAConvEff << "\t" << SA_TIME_AVG << "\t" << SAavgTimePerAnneal << "\t" << SAavgTimePerAnneal_sigma << endl;
+    outFile << THREADS <<"\t"<< STAGES << "\t" << SWEEPS << "\t" << SAConvEff << "\t" << SA_TIME_AVG << endl;
     outFile.close();
     
     return 0;
