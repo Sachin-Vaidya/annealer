@@ -44,6 +44,7 @@ vector<int> interpret(const solution_t &solution, const int nT, const int nV) {
 
 // returns a vector of the z positions of the vertices. same vertex indices as that of the assignment
 // we simply average the z positions of the tracks assigned to each vertex
+/*
 vector<ftype> assignment_to_vertices(const vector<int> &assignment, const event_t &event) {
     vector<ftype> vertices(event.nV, 0);
     vector<int> counts(event.nV, 0);
@@ -69,8 +70,8 @@ vector<ftype> assignment_to_vertices(const vector<int> &assignment, const event_
 
     return vertices;
 }
+*/
 
-/*
 vector<ftype> assignment_to_vertices(const vector<int> &assignment, const event_t &event) {
     vector<ftype> vertices(event.nV, 0);
     vector<int> counts(event.nV, 0);
@@ -103,7 +104,7 @@ vector<ftype> assignment_to_vertices(const vector<int> &assignment, const event_
 
     return vertices;
 }
-*/
+
 
 // both inputs should be sorted.
 ftype dp_matching(const vector<ftype> &A, const vector<ftype> &B) {
