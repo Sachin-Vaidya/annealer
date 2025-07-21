@@ -1,15 +1,15 @@
 #!/bin/bash
 
-declare -a threads=(1 2 4 5 8 10 16 20 25 40 50 80 100 125)
+declare -a threads=(1 25 50 100)
 
-declare -a stages=(1 2 4 5 8 10 16 20 25 40 50 80 100)
+declare -a stages=(1 2 5 10)
 
-declare -a sweeps=(10 50 100 150 200 400 500 800 1000)
+declare -a sweeps=(2 5 10 20)
+
+#declare -a sweeps=(6)
+#DA_SWEEPS=5
 
 mkdir -p slurm
-
-output_file="SA_ConvergenceEfficiency_and_TimePerAnneal.txt"
->"$output_file"
 
 for THREADS in "${threads[@]}"
 do
@@ -17,37 +17,43 @@ do
     do
         for SWEEPS in "${sweeps[@]}"
         do
-            if (( SWEEPS % STAGES == 0 )); then
+            if (( SWEEPS % STAGES == 0 && SWEEPS != STAGES)); then
+                output_file="ConvergenceEfficiency_and_TimePerAnneal.txt"
+                >"$output_file"
+
+                output_file2="ConvergenceEfficiency_and_DunnIndex_Binning.txt"
+                >"$output_file2"
+            
                 export OMP_PROC_BIND=TRUE       # Enables binding threads to CPUs
                 export OMP_PLACES=cores         # Maps each thread to a distinct core
                 export OMP_NUM_THREADS=${THREADS}  # Set number of threads to your cores count
                 SAMPLES_PER_THREAD=$((10000 / THREADS))
             
-                echo "Running with THREADS=${THREADS}, STAGES=${STAGES}, SAMPLES_PER_THREAD=${SAMPLES_PER_THREAD}, SWEEPS=${SWEEPS}"
+                echo "Running with THREADS=${THREADS}, STAGES=${STAGES}, SAMPLES_PER_THREAD=${SAMPLES_PER_THREAD}, SWEEPS=${SWEEPS}, DA_SWEEPS=${SWEEPS}"
                 
                 SCRIPT_DIR="job_scripts"
                 mkdir -p "$SCRIPT_DIR"
                 
-                JOB_FILE="${SCRIPT_DIR}/job_${THREADS}_${STAGES}_${SWEEPS}.sh"
+                JOB_FILE="${SCRIPT_DIR}/job_${THREADS}_${STAGES}_${SWEEPS}_${SWEEPS}.sh"
             
                 cat > "$JOB_FILE" << EOF
 #!/bin/bash
 #SBATCH --job-name=run_${THREADS}
 #SBATCH --nodes=1
 #SBATCH --ntasks=${THREADS}
-#SBATCH --time=04:00:00
+#SBATCH --time=01:00:00
 
 export SAMPLES_PER_THREAD=${SAMPLES_PER_THREAD}
 
 make clean
-make && make run THREADS=${THREADS} STAGES=${STAGES} SWEEPS=${SWEEPS} SAMPLES_PER_THREAD=\$SAMPLES_PER_THREAD
+make && make run THREADS=${THREADS} STAGES=${STAGES} SWEEPS=${SWEEPS} DA_SWEEPS=${SWEEPS} SAMPLES_PER_THREAD=\$SAMPLES_PER_THREAD
 EOF
     
                 chmod +x "$JOB_FILE"
                 
                 # Submit job and capture Job ID
                 jobid=$(sbatch "$JOB_FILE" | awk '{print $4}')
-                echo "Submitted job slurm-$jobid for THREADS=$THREADS , STAGES=$STAGES , SWEEPS=$SWEEPS"
+                echo "Submitted job slurm-$jobid for THREADS=$THREADS , STAGES=$STAGES , SWEEPS=$SWEEPS, DA_SWEEPS=$SWEEPS"
                 
                 echo ""
                 
