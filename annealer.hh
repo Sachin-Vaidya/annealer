@@ -3,13 +3,14 @@
 #include <functional>
 #include <vector>
 #include <map>
+#include <cstdint>
 
 using namespace std;
 
 using ftype = double; // use double for actual math stuff
 using solution_t = vector<uint8_t>;
 using qubo_t = map<pair<int, int>, ftype>;
-using scheduler_t = function<ftype(ftype T_0, ftype T_f, ftype T, int iter, int max_iter)>;
+using scheduler_t = function<ftype(ftype T_0, ftype T_f, ftype T, int iter, int max_iter, int num_stage)>;
 
 struct event_t;
 
@@ -22,7 +23,7 @@ class QUBO {
         ftype max_D;
 
         // use float for params to save memory
-        vector<pair<int, float>> affectedby_flat; // list of js that are affected by flipping a certain bit
+        vector<pair<int, ftype>> affectedby_flat; // list of js that are affected by flipping a certain bit
         vector<int> offset; // offset of each row in the flat list
     public:
         QUBO(event_t& event); // OTF mode.
