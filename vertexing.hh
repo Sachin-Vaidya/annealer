@@ -1,6 +1,7 @@
 #pragma once
 
 #include <vector>
+#include <string>
 #include "annealer.hh"
 
 using namespace std;
@@ -35,3 +36,5 @@ ftype energy_from_assignment(const vector<int> &assignment, const QUBO &qubo, co
 ftype get_max_D(const event_t &event);
 ftype evaluate_diff_on_the_fly(const solution_t &x, const event_t &event, int flip_idx, ftype max_D);
 ftype evaluate_full_OTF(const solution_t &x, const event_t &event, ftype max_D);
+
+ftype calculate_dunn_index(const vector<int>& assignment, const event_t& event, int nV, const std::vector<ftype>& cluster_centroids);
