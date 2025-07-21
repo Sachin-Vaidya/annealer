@@ -6,4 +6,4 @@
 
 using namespace std;
 
-pair<vector<int>, vector<ftype>> runDA(event_t event);
+pair<vector<int>, vector<ftype>> runDA(event_t event, int nSWEEPS);
