@@ -8,6 +8,7 @@
 #include <unordered_map>
 #include <string>
 #include <cmath>
+#include <limits>
 
 #include "vertexing.hh"
 
@@ -176,7 +177,20 @@ ftype energy_from_assignment(const vector<int> &assignment, const QUBO &qubo, co
 
     for (int i = 0; i < assignment.size(); i++) {
         int vertex = assignment[i];
-        solution[i + nT * vertex] = 1;
+        // Critical: Ensure 'vertex' is within expected bounds
+        if (vertex < 0 || vertex >= nV) {
+            // Handle error: print a message, throw an exception, or adjust vertex
+            // For debugging, a simple print is good:
+            std::cerr << "Error: 'vertex' value " << vertex << " is out of bounds for nV=" << nV << std::endl;
+            // You might even want to skip this iteration or exit.
+            continue; // Skip current iteration if vertex is invalid
+        }
+        /*
+        //cluster-major
+        solution[nT * vertex + i] = 1; // Or the corrected index formula
+        */
+        //track-major
+        solution[vertex + nV * i] = 1;
     }
 
     return qubo.evaluate(solution);
@@ -218,6 +232,7 @@ QUBO event_to_qubo(const event_t &event) {
     const auto& trackData = event.trackData;
 
     const ftype scale = 1.5;
+    //const ftype scale = 1.;
 
     qubo_t qubo_map;
 
@@ -237,8 +252,16 @@ QUBO event_to_qubo(const event_t &event) {
         // return 1.0 - exp(-x);
     };
 
+    /*
     auto idx = [nT](int track, int vertex) {
+        //cluster-major
         return track + nT * vertex;
+    };
+    */
+    
+    auto idx = [nV](int track, int vertex) {
+        //track-major
+        return nV * track + vertex;
     };
 
     ftype lambda = 1.2;
@@ -270,26 +293,40 @@ QUBO event_to_qubo(const event_t &event) {
         for (int i = 0; i < nT; ++i) {
             for (int j = i + 1; j < nT; ++j) {
                 ftype D_ij = D(trackData[i], trackData[j]);
-                qubo_map[{idx(j, k), idx(i, k)}] += g(D_ij / max_D);
+                qubo_map[{idx(i, k), idx(j, k)}] += g(D_ij / max_D);
                 //qubo_map[{idx(j, k), idx(i, k)}] += g(D_ij);
             }
         }
     }
 
-    //lambda *= max_D;
+    //lambda *= max_D/scale;
+    //lambda /= max_D;
+    //lambda /= log(max_D);
+    //lambda *= exp(-1.0);
+    //lambda *= scale/10;
+    
+    std::cout << "max D = " << max_D << endl;
 
     // penalty
     for (int i = 0; i < nT; ++i) {
         for (int k = 0; k < nV; ++k) {
             qubo_map[{idx(i, k), idx(i, k)}] -= lambda;
             for (int k2 = k + 1; k2 < nV; ++k2) {
-                qubo_map[{idx(i, k2), idx(i, k)}] += 2 * lambda;
+                qubo_map[{idx(i, k), idx(i, k2)}] += 2 * lambda;
             }
         }
     }
-
+    
     cout << "qubo num terms: " << qubo_map.size() << '\n';
     cout << "max possible: " << nT * nV << "^2\n";
+    
+    /*std::cout << "start" << endl;
+    for (const auto& entry : qubo_map) {
+        auto indices = entry.first;
+        ftype value = entry.second;
+        std::cout << "(" << indices.first << "," << indices.second << ") : " << value << '\n';
+    }
+    std::cout << "end" << endl;*/
 
     return QUBO(qubo_map);
 }
@@ -306,7 +343,7 @@ ftype get_max_D(const event_t &event) {
         }
     }
 
-    cout << "max_D: " << max_D << '\n';
+    cout << "max_D: " << max_D << '\n' << endl;
 
     return max_D;
 }
@@ -336,6 +373,7 @@ ftype evaluate_diff_on_the_fly(const solution_t &x, const event_t &event, int fl
     };
 
     const ftype scale = 1.5;
+    //const ftype scale = 1.;
 
     auto g = [scale](ftype x, ftype m = 5) {
         // return 1.0 - exp(-m * x);
@@ -349,8 +387,16 @@ ftype evaluate_diff_on_the_fly(const solution_t &x, const event_t &event, int fl
         // return 1.0 - exp(-x);
     };
 
+    /*
     auto idx = [nT](int track, int vertex) {
+        //cluster-major
         return track + nT * vertex;
+    };
+    */
+    
+    auto idx = [nV](int track, int vertex) {
+        //track-major
+        return nV * track + vertex;
     };
 
     ftype diff = 0.0;
@@ -377,15 +423,141 @@ ftype ground_state(const QUBO &qubo, const event_t &event) {
     solution_t solution(event.nT*event.nV, 0);
 
     auto idx = [event](int track, int vertex) {
+        /*
+        //cluster-major
         return track + event.nT * vertex;
+        */
+        //track-major
+        return event.nV * track + vertex;
     };
 
     for (int i = 0; i < event.nT; i++) {
-        int vertex = i / round(event.nT/event.nV); // event.nT tracks per vertex. TODO: magic number bad
+        int vertex = i / round(event.nT/event.nV); //TODO: magic number bad
         solution[idx(i, vertex)] = 1;
     }
     return qubo.evaluate(solution);
 }
+
+/////////////////////// ==================== Dunn Index start ===================== /////////////////////////////
+
+ftype track_distance(const pair<ftype, ftype>& i, const pair<ftype, ftype>& j) {
+    if (i.second == 0 && j.second == 0) {
+        return (i.first != j.first) ? std::numeric_limits<ftype>::infinity() : 0.0;
+    }
+    ftype denominator = std::sqrt(i.second * i.second + j.second * j.second);
+    if (denominator == 0) {
+        return std::numeric_limits<ftype>::infinity(); // Avoid division by zero
+    }
+    return std::abs(i.first - j.first);// / denominator;
+}
+
+ftype get_vertex_distance(ftype centroid1, ftype centroid2) {
+    return std::abs(centroid1 - centroid2);
+}
+
+// Computes the maximum intra-cluster distance (diameter) for a given cluster
+// 'cluster_track_indices' contains the global indices of tracks belonging to this cluster
+ftype get_max_intra_cluster_D(const vector<int>& cluster_track_indices, const vector<pair<ftype, ftype>>& all_track_data) {
+    if (cluster_track_indices.size() < 2) {
+        return 0.0; // Diameter is 0 for clusters with less than 2 tracks
+    }
+
+    ftype max_d = 0.0;
+    for (size_t i = 0; i < cluster_track_indices.size(); ++i) {
+        for (size_t j = i + 1; j < cluster_track_indices.size(); ++j) {
+            const auto& track1 = all_track_data[cluster_track_indices[i]];
+            const auto& track2 = all_track_data[cluster_track_indices[j]];
+            max_d = std::max(max_d, track_distance(track1, track2));
+        }
+    }
+    return max_d;
+}
+
+// Computes the minimum inter-cluster distance between two clusters
+// 'cluster1_track_indices' and 'cluster2_track_indices' contain global indices for their respective tracks
+/*ftype get_min_inter_cluster_D(const vector<int>& cluster1_track_indices,const vector<int>& cluster2_track_indices,const vector<pair<ftype, ftype>>& all_track_data) {
+    ftype min_d = std::numeric_limits<ftype>::infinity();
+    for (int track_idx1 : cluster1_track_indices) {
+        for (int track_idx2 : cluster2_track_indices) {
+            const auto& track1 = all_track_data[track_idx1];
+            const auto& track2 = all_track_data[track_idx2];
+            min_d = std::min(min_d, track_distance(track1, track2));
+        }
+    }
+    return min_d;
+}*/
+
+
+// --- Main Dunn Index Calculation Function ---
+// --- Main Dunn Index Calculation Function (Modified to accept pre-calculated centroids) ---
+// cluster_centroids: A vector where each element is the centroid of a cluster.
+// The index of the centroid in this vector should correspond to the cluster_id.
+ftype calculate_dunn_index(const std::vector<int>& assignment, const event_t& event, int nV, const std::vector<ftype>& cluster_centroids) {
+    // 1. Organize tracks by cluster
+    std::vector<std::vector<int>> clusters_track_indices(nV);
+    for (int i = 0; i < event.nT; ++i) {
+        int cluster_id = assignment[i];
+        if (cluster_id >= 0 && cluster_id < nV) { // Ensure valid cluster ID
+            clusters_track_indices[cluster_id].push_back(i);
+        }
+    }
+
+    // Identify valid clusters (non-empty ones) and their corresponding centroid IDs
+    std::vector<int> valid_cluster_ids;
+    for (int i = 0; i < nV; ++i) {
+        if (!clusters_track_indices[i].empty()) {
+            valid_cluster_ids.push_back(i);
+        }
+    }
+
+    // Check if there are at least 2 non-empty clusters
+    int num_valid_clusters = valid_cluster_ids.size();
+    if (num_valid_clusters < 2) {
+        // Dunn Index is undefined for less than 2 clusters
+        return std::numeric_limits<ftype>::infinity();
+    }
+
+    // 2. Find the maximum intra-cluster distance among all valid clusters
+    ftype max_intra_d = 0.0; // This will store the max diameter found across all clusters
+    for (int cluster_id : valid_cluster_ids) {
+        max_intra_d = std::max(max_intra_d, get_max_intra_cluster_D(clusters_track_indices[cluster_id], event.trackData));
+    }
+
+    if (max_intra_d == 0) {
+        // If the largest intra-cluster distance is 0, it means all tracks within
+        // all clusters are identical. This implies perfectly compact clusters,
+        // making the Dunn index infinite, indicating perfect clustering.
+        return std::numeric_limits<ftype>::infinity();
+    }
+
+    // 3. Find the minimum inter-cluster distance (vertex distance) among all pairs of valid clusters
+    ftype min_inter_d = std::numeric_limits<ftype>::infinity(); // This will store the min separation
+    for (int k1_idx = 0; k1_idx < num_valid_clusters; ++k1_idx) {
+        int cluster_id1 = valid_cluster_ids[k1_idx];
+        for (int k2_idx = k1_idx + 1; k2_idx < num_valid_clusters; ++k2_idx) {
+            int cluster_id2 = valid_cluster_ids[k2_idx];
+            
+            // Ensure centroids exist for these IDs before accessing
+            if (cluster_id1 < cluster_centroids.size() && cluster_id2 < cluster_centroids.size()) {
+                 min_inter_d = std::min(min_inter_d, get_vertex_distance(cluster_centroids[cluster_id1], cluster_centroids[cluster_id2]));
+            } else {
+                // Handle error: centroid for a valid cluster ID was not provided
+                // This might indicate an issue with how cluster_centroids is populated.
+                // For robustness, you might want to log this or return an error value.
+                // For now, it will simply skip this pair if a centroid is missing.
+            }
+        }
+    }
+    
+    // If no valid inter-cluster distances were found (e.g., due to centroid mismatch)
+    // and min_inter_d remains infinity, it's an issue.
+    // If it's infinity because there were < 2 valid clusters, that's handled above.
+
+    // 4. Calculate the Dunn Index
+    return min_inter_d / max_intra_d;
+}
+
+/////////////////////// ==================== Dunn Index end ===================== /////////////////////////////
 
 
 // source: andrew wildridge. lightly modified
