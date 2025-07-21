@@ -11,6 +11,12 @@
 #include <omp.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <boost/math/distributions/students_t.hpp>
+#include <boost/math/special_functions/beta.hpp>
+#include <boost/histogram/utility/clopper_pearson_interval.hpp>
+#include <boost/histogram/fwd.hpp>
+#include <boost/math/distributions/beta.hpp>
+#include <set>
 
 #include "annealer.hh"
 #include "vertexing.hh"
@@ -20,14 +26,31 @@ int THREADS;
 int STAGES;
 int SAMPLES_PER_THREAD;
 int SWEEPS;
+int DA_SWEEPS;
 
-double Temperature;
-double SA_timer_start;
-double SA_timer_stop;
+ftype Temperature_SA, Temperature_DA;
+ftype SA_timer_start;
+ftype SA_timer_stop;
 
-std::vector<std::vector<int>> CorrectSolutionOrNot;
-int Correct_Solutions;
+std::vector<std::vector<int>> CorrectGivenValidSolutionOrNot, ValidSolutionOrNot;
+int CorrectGivenValid_SA_Solutions, Valid_SA_Solutions;
+int Correct_DA_Solutions, Valid_DA_Solutions;
 std::vector<ftype> SATimePerThreadsAnneal;
+
+std::set<std::set<int>> valueSetsInMap_truth;
+std::vector<int> int_truth;
+vector<vector<int>> sorted_truth_clusters;
+
+std::vector<std::vector<int>> convertAndSortClusters(const std::set<std::set<int>>& cluster_sets) {
+    std::vector<std::vector<int>> clusters_vec;
+    for (const auto& cluster : cluster_sets) {
+        std::vector<int> sorted_cluster(cluster.begin(), cluster.end());
+        std::sort(sorted_cluster.begin(), sorted_cluster.end());
+        clusters_vec.push_back(std::move(sorted_cluster));
+    }
+    std::sort(clusters_vec.begin(), clusters_vec.end());
+    return clusters_vec;
+}
 
 // Function to check if a file exists
 bool file_exists(const std::string& filename) {
@@ -56,6 +79,7 @@ struct settings {
     problem_context context;
     bool dolog = true;
     // bool OTF = true;
+    int da_sweeps;
 };
 
 struct result {
@@ -79,7 +103,7 @@ QUBO::QUBO(event_t& event) {
 
 QUBO::QUBO(qubo_t& Q) {
     this->OTF = false;
-    
+
     n = qubo_size(Q);
 
     offset.resize(n + 1, 0); // n+1 to store end too.
@@ -108,8 +132,8 @@ QUBO::QUBO(qubo_t& Q) {
         affectedby_flat[insert_pos[j]++] = {i, val};
     }
 
-    //cout << "conversion done\n";
-    //cout << "size of flat list = " << affectedby_flat.size() << "\n";
+    //std::cout << "conversion done\n";
+    //std::cout << "size of flat list = " << affectedby_flat.size() << "\n";
 }
 
 ftype QUBO::evaluate(const solution_t& x) const {
@@ -157,7 +181,7 @@ result sim_anneal(const QUBO& Q, const settings s, const solution_t init_guess =
     mt19937 gen(s.seed);
     uniform_real_distribution<> dis(0.0, 1.0);
 
-    int nT = s.context.event.nT; 
+    int nT = s.context.event.nT;
     int nV = s.context.event.nV;
 
     uniform_int_distribution<> t_dis(0, nT - 1);
@@ -191,7 +215,7 @@ result sim_anneal(const QUBO& Q, const settings s, const solution_t init_guess =
             }
         }
 
-        //cout << "Using init guess\n";
+        //std::cout << "Using init guess\n";
     }
 
     ftype f_x = Q.evaluate(x);
@@ -202,23 +226,23 @@ result sim_anneal(const QUBO& Q, const settings s, const solution_t init_guess =
     ftype T = s.T_0;
     for (int iter = 0; iter < s.max_iter; iter++) {
         if (iter % 1000 == 0 && s.dolog) {
-            //cout << "Iter: " << iter << " Energy: " << f_x << " T: " << T << '\n';
+            //std::cout << "Iter: " << iter << " Energy: " << f_x << " T: " << T << '\n';
         }
 
         int t = t_dis(gen);
         int v = v_dis(gen);
         int bit = bit_idx(t, v);
-        
+
         solution_t x_prime = x;
         ftype delta = Q.evaluateDiff(x_prime, bit);
         x_prime[bit] = 1 - x[bit]; // toggle bit
-        
+
         ftype f_x_prime = f_x + delta;
-        
+
         if (f_x_prime < f_x || (T != 0 && dis(gen) < exp((f_x - f_x_prime) / T))) {
             x = x_prime;
             f_x = f_x_prime;
-        
+
             // Optionally update track_to_vertex[t], but careful:
             // Since multiple bits per track can be set, maybe just set to -1
             //track_to_vertex[t] = -1; // or recompute after loop
@@ -230,9 +254,9 @@ result sim_anneal(const QUBO& Q, const settings s, const solution_t init_guess =
         }
 
         T = s.temp_scheduler(s.T_0, s.T_f, T, iter, s.max_iter, num_stage);
-        Temperature = T;
-        
-        //cout << "\nTemperature calculation verification: " << num_stage << ", " << T << ", " << Temperature << endl;
+        Temperature_SA = T;
+
+        //std::cout << "\nTemperature_SA calculation verification: " << num_stage << ", " << T << ", " << Temperature_SA << endl;
     }
 
     // re-evaluate best solution to eliminate float point errors
@@ -240,10 +264,10 @@ result sim_anneal(const QUBO& Q, const settings s, const solution_t init_guess =
 
     return {best_x, best_f_x};
 }
-
+*/
 
 //Sweep through entire bit string and flip them
-
+/*
 result sim_anneal(const QUBO& Q, const settings s, const solution_t init_guess = {}, int num_stage = 1) {
     mt19937 gen(s.seed);
     uniform_real_distribution<> dis(0.0, 1.0);
@@ -251,28 +275,20 @@ result sim_anneal(const QUBO& Q, const settings s, const solution_t init_guess =
     int nT = s.context.event.nT;
     int nV = s.context.event.nV;
 
-    auto bit_idx = [nT](int t, int v) {
-        return t + nT * v;
+    // track-major index function
+    auto bit_idx = [nV](int t, int v) {
+        return nV * t + v;
     };
 
     solution_t x(nT * nV, 0);
-    vector<int> track_to_vertex(nT, -1);
 
-    // Random initial guess if not provided
-    for (int t = 0; t < nT; t++) {
-        int v = gen() % nV;
-        track_to_vertex[t] = v;
-        x[bit_idx(t, v)] = 1;
-    }
-
+    // Initialize random or with init_guess
     if (!init_guess.empty()) {
         x = init_guess;
-        for (int t = 0; t < nT; t++) {
-            for (int v = 0; v < nV; v++) {
-                if (x[bit_idx(t, v)]) {
-                    track_to_vertex[t] = v;
-                }
-            }
+    } else {
+        for (int t = 0; t < nT; ++t) {
+            int v = gen() % nV;
+            x[bit_idx(t, v)] = 1;
         }
     }
 
@@ -282,50 +298,41 @@ result sim_anneal(const QUBO& Q, const settings s, const solution_t init_guess =
 
     ftype T = s.T_0;
 
-    for (int iter = 0; iter < s.max_iter; iter++) {
-        if (iter % 1000 == 0 && s.dolog) {
-            // //cout << "Iter: " << iter << " Energy: " << f_x << " T: " << T << '\n';
-        }
-
-        // SWEEP through all bits
+    for (int iter = 0; iter < s.max_iter; ++iter) {
         for (int t = 0; t < nT; ++t) {
             for (int v = 0; v < nV; ++v) {
                 int bit = bit_idx(t, v);
-                
-                solution_t x_prime = x;
-                ftype delta = Q.evaluateDiff(x_prime, bit);
-                x_prime[bit] = 1 - x[bit]; // toggle bit
+
+                // Try flipping this bit in-place
+                ftype delta = Q.evaluateDiff(x, bit);
                 ftype f_x_prime = f_x + delta;
 
-                // Metropolis criterion
-                if (f_x_prime < f_x || (T != 0 && dis(gen) < exp((f_x - f_x_prime) / T))) {
-                    x = x_prime;
+                bool accept = (f_x_prime < f_x) || (T > 0 && dis(gen) < exp((f_x - f_x_prime) / T));
+
+                if (accept) {
+                    x[bit] = 1 - x[bit]; // Flip bit
                     f_x = f_x_prime;
 
-                    // Optionally update track_to_vertex, but unclear validity for multiple 1s
-                    //track_to_vertex[t] = -1;
+                    if (f_x < best_f_x) {
+                        best_x = x;
+                        best_f_x = f_x;
+                    }
                 }
-
-                if (f_x < best_f_x) {
-                    best_x = x;
-                    best_f_x = f_x;
-                }
+                // No need to revert the bit — flip only if move is accepted
             }
         }
 
-        // Lower temperature after full sweep
         T = s.temp_scheduler(s.T_0, s.T_f, T, iter, s.max_iter, num_stage);
-        Temperature = T;
-
-        //cout << "\nTemperature calculation verification: " << num_stage << ", " << T << ", " << Temperature << endl;
+        Temperature_SA = T;
     }
 
-    best_f_x = Q.evaluate(best_x); // cleanup
+    best_f_x = Q.evaluate(best_x); // re-evaluate in case of rounding
     return {best_x, best_f_x};
 }
+*/
 
 //=================================== ====================================== =========================================//
-*/
+
 
 /*
 //=================================== SA without and with sweeps from Ishan's code =========================================//
@@ -346,21 +353,21 @@ result sim_anneal(const QUBO& Q, const settings s, const solution_t init_guess =
 
     if (!init_guess.empty()) x = init_guess;
 
-    double f_x = Q.evaluate(x);
+    ftype f_x = Q.evaluate(x);
 
     solution_t best_x = x;
-    double best_f_x = f_x;
+    ftype best_f_x = f_x;
 
-    double T = s.T_0;
+    ftype T = s.T_0;
     for (int iter = 0; iter < s.max_iter; iter++) {
         if (iter % 10000 == 0 && s.dolog) {
-            //cout << "Iter: " << iter << " Energy: " << best_f_x << " T: " << T << '\n';
+            //std::cout << "Iter: " << iter << " Energy: " << best_f_x << " T: " << T << '\n';
         }
 
         solution_t x_prime = x;
         int flip_idx = flip_dis(gen);
 
-        double f_x_prime = Q.evaluateDiff(x, flip_idx) + f_x;
+        ftype f_x_prime = Q.evaluateDiff(x, flip_idx) + f_x;
 
         x_prime[flip_idx] = !x_prime[flip_idx];
 
@@ -376,9 +383,9 @@ result sim_anneal(const QUBO& Q, const settings s, const solution_t init_guess =
 
         // Lower temperature after full sweep
         T = s.temp_scheduler(s.T_0, s.T_f, T, iter, s.max_iter, num_stage);
-        Temperature = T;
+        Temperature_SA = T;
 
-        //cout << "\nTemperature calculation verification: " << num_stage << ", " << T << ", " << Temperature << endl;
+        //std::cout << "\nTemperature_SA calculation verification: " << num_stage << ", " << T << ", " << Temperature_SA << endl;
     }
 
     best_f_x = Q.evaluate(best_x); // cleanup
@@ -389,31 +396,31 @@ result sim_anneal(const QUBO& Q, const settings s, const solution_t init_guess =
 //SA with sweep
 
 result sim_anneal(const QUBO& Q, const settings s, const solution_t init_guess = {}, int num_stage = 1) {
+    //mt19937 gen(42);
     mt19937 gen(s.seed);
     uniform_real_distribution<> dis(0.0, 1.0);
 
     solution_t x(s.context.event.nT * s.context.event.nV, 0);
     for (auto &xi : x) {
-        xi = dis(gen) < 0.5 ? 0 : 1;
+        xi = ftype(dis(gen)/1.0) < 0.5 ? 0 : 1;
     }
 
     if (!init_guess.empty()) x = init_guess;
 
-    double f_x = Q.evaluate(x);
+    ftype f_x = Q.evaluate(x);
     solution_t best_x = x;
-    double best_f_x = f_x;
+    ftype best_f_x = f_x;
 
-    double T = s.T_0;
+    ftype T = s.T_0;
+
+    //std::cout << "Sweeps: " << s.max_iter << ", bitstring size: " << static_cast<int>(x.size()) << endl;
 
     for (int iter = 0; iter < s.max_iter; iter++) {
-        /*if (iter % 1000 == 0 && s.dolog) {
-            //cout << "Iter: " << iter << " Energy: " << best_f_x << " T: " << T << '\n';
-        }*/
 
         for (int i = 0; i < static_cast<int>(x.size()); i++) {
-            double f_x_prime = Q.evaluateDiff(x, i) + f_x;
+            ftype f_x_prime = Q.evaluateDiff(x, i) + f_x;
 
-            if (f_x_prime < f_x || dis(gen) < exp((f_x - f_x_prime) / T)) {
+            if (f_x_prime < f_x || ftype(dis(gen)/1.0) < exp((f_x - f_x_prime) / T)) {
                 x[i] = !x[i];  // Flip bit
                 f_x = f_x_prime;
             }
@@ -425,14 +432,57 @@ result sim_anneal(const QUBO& Q, const settings s, const solution_t init_guess =
         }
 
         T = s.temp_scheduler(s.T_0, s.T_f, T, iter, s.max_iter, num_stage);
-        //Temperature = T;
+        Temperature_SA = T;
 
-        //cout << "\nTemperature calculation verification: " << num_stage << ", " << T << ", " << Temperature << endl;
+        //std::cout << "\nTemperature_SA calculation verification: " << num_stage << ", " << T << ", " << Temperature_SA << endl;
     }
 
     best_f_x = Q.evaluate(best_x); // cleanup
     return {best_x, best_f_x};
 }
+
+//SA with sweep with better optimization
+/*result sim_anneal(const QUBO& Q, const settings s, const solution_t init_guess = {}, int num_stage = 1) {
+    mt19937 gen(s.seed);
+    uniform_real_distribution<> dis(0.0, 1.0);
+
+    solution_t x;
+    if (!init_guess.empty()) {
+        x = init_guess;
+    } else {
+        x.resize(s.context.event.nT * s.context.event.nV);
+        for (auto &xi : x)
+            xi = dis(gen) < 0.5 ? 1 : 0;
+    }
+
+    ftype f_x = Q.evaluate(x);
+    solution_t best_x = x;
+    ftype best_f_x = f_x;
+
+    std::vector<ftype> T_schedule(s.max_iter);
+    for (int i = 0; i < s.max_iter; ++i)
+        T_schedule[i] = s.temp_scheduler(s.T_0, s.T_f, s.T_0, i, s.max_iter, num_stage);
+
+    for (int iter = 0; iter < s.max_iter; ++iter) {
+        ftype T = T_schedule[iter];
+        for (int i = 0; i < static_cast<int>(x.size()); ++i) {
+            ftype f_x_prime = Q.evaluateDiff(x, i) + f_x;
+
+            if (f_x_prime < f_x || dis(gen) < exp((f_x - f_x_prime) / T)) {
+                x[i] = !x[i];
+                f_x = f_x_prime;
+
+                if (f_x < best_f_x) {
+                    best_x = x;
+                    best_f_x = f_x;
+                }
+            }
+        }
+        Temperature_SA = T;
+    }
+
+    return {best_x, best_f_x};
+}*/
 
 //=================================== ====================================== =========================================//
 
@@ -456,129 +506,137 @@ void assert_upper_triangular(const qubo_t& Q) {
 }
 
 // returns sorted results of length num_threads * samples_per_thread. first elem is best.
-vector<result> multithreaded_sim_anneal(const QUBO& Q, const settings s, int num_threads, int samples_per_thread = 1, const vector<solution_t> init_guess = {}, string filename = "", int num_stage=1) {
-    vector<thread> threads;
+vector<result> multithreaded_sim_anneal(const QUBO& Q, const settings s, int num_threads, int samples_per_thread, const vector<solution_t> init_guess, string filename, int num_stage) {
     vector<result> results(num_threads * samples_per_thread);
-    vector<solution_t> local_init_guess = init_guess;
+    vector<solution_t> local_init_guess;
 
-    if (init_guess.size() != num_threads) {
-        if (!init_guess.empty()) {
-            local_init_guess = vector<solution_t>(num_threads, init_guess[0]);
-        } else {
-            local_init_guess = vector<solution_t>(num_threads, solution_t{});
-        }
+    // Handle init_guess fallback logic
+    if (init_guess.size() == num_threads) {
+        local_init_guess = init_guess;
+    } else if (!init_guess.empty()) {
+        local_init_guess.assign(num_threads, init_guess[0]);
+    } else {
+        local_init_guess.assign(num_threads, solution_t{});
     }
 
-    /*
-    // threads: manually
-    for (int i = 0; i < num_threads; i++) {
-        threads.emplace_back([&results, i, &Q, s, samples_per_thread, local_init_guess](){
-            for (int j = 0; j < samples_per_thread; j++) {
-                settings s_copy = s;
-                s_copy.seed += i * samples_per_thread + j; // different seed for each thread
-                results[i * samples_per_thread + j] = sim_anneal(Q, s_copy, local_init_guess[i]);
-            }
-        });
-    }
-    */
-    
-    // Using OpenMP
     omp_set_num_threads(num_threads);
-    
+
     event_t event = loadTracks(filename);
-    ftype ground = ground_state(Q, event);
-    
-    Correct_Solutions = 0;
-    
-    //SATimePerThreadsAnneal = std::vector<ftype>(samples_per_thread, 0.0);
-    CorrectSolutionOrNot = std::vector<std::vector<int>>(num_threads, std::vector<int>(samples_per_thread, 0));
-    
-    for (int j = 0; j < samples_per_thread; j++) 
-    {
-        //SATimePerThreadsAnneal[j] = omp_get_wtime();
+    ftype ground = ground_state(Q, s.context.event);
+
+    CorrectGivenValid_SA_Solutions = 0;
+    Valid_SA_Solutions = 0;
+
+    const int nT = s.context.event.nT;
+    const int nV = s.context.event.nV;
+
+    CorrectGivenValidSolutionOrNot.assign(num_threads, vector<int>(samples_per_thread, 0));
+    ValidSolutionOrNot.assign(num_threads, vector<int>(samples_per_thread, 0));
+
+    for (int j = 0; j < samples_per_thread; j++) {
         #pragma omp parallel
         {
-            int tid = omp_get_thread_num(); // actual thread ID
+            int tid = omp_get_thread_num();
+            int index = tid * samples_per_thread + j;
+
             settings s_copy = s;
-            s_copy.seed += tid * samples_per_thread + j; // different seed for each thread
-            
-            #ifdef __linux__
-            int cpu = sched_getcpu();
-            printf("Thread %d handling, sample %d running on CPU %d\n", tid, j, cpu);
-            #endif
+            s_copy.seed += index;
 
-            
-            
-            
-            results[tid * samples_per_thread + j] = sim_anneal(Q, s_copy, local_init_guess[tid], num_stage);
-            
-            
-            
-            
-            if (abs(ground - results[tid * samples_per_thread + j].energy) < 1.e-9) {
-                CorrectSolutionOrNot[tid][j] = 1;
+            result& r = results[index];
+            r = sim_anneal(Q, s_copy, local_init_guess[tid], num_stage);
+
+            const auto& vert = r.solution;
+            vector<int> int_vert_assignment(nT, -1);
+            bool valid = true;
+
+            // Assignment check
+            for (int l = 0; l < nT && valid; ++l) {
+                int sum = 0, selected_p = -1;
+                for (int p = 0; p < nV; ++p) {
+                    int val = vert[p + l * nV];
+                    sum += val;
+                    if (val == 1) selected_p = p;
+                }
+                if (sum != 1) {
+                    valid = false;
+                } else {
+                    int_vert_assignment[l] = selected_p;
+                }
+            }
+
+            if (valid) {
+                ValidSolutionOrNot[tid][j] = 1;
+
+                // Collect clusters via vector instead of map
+                vector<vector<int>> clusters(nV);
+                for (int t = 0; t < nT; ++t) {
+                    clusters[int_vert_assignment[t]].push_back(t);
+                }
+
+                // Filter empty, sort inner and outer vectors
+                vector<vector<int>> filtered_clusters;
+                for (auto& c : clusters) {
+                    if (!c.empty()) {
+                        std::sort(c.begin(), c.end());
+                        filtered_clusters.push_back(std::move(c));
+                    }
+                }
+                std::sort(filtered_clusters.begin(), filtered_clusters.end());
+
+                bool is_correct = (filtered_clusters == sorted_truth_clusters);
+                CorrectGivenValidSolutionOrNot[tid][j] = is_correct ? 1 : 0;
+            } else {
+                ValidSolutionOrNot[tid][j] = 0;
+                CorrectGivenValidSolutionOrNot[tid][j] = 0;
             }
         }
-        //SATimePerThreadsAnneal[j] = omp_get_wtime() - SATimePerThreadsAnneal[j];
     }
-    
-    for (int i = 0; i < num_threads; i++) {
-        for (int j = 0; j < samples_per_thread; j++) {
-            Correct_Solutions += CorrectSolutionOrNot[i][j];
-        }
-    }
-    
-    /*Correct_Solutions = 0;
-    for (int i = 0; i < num_threads; i++) {
-        for (int j = 0; j < samples_per_thread; j++) {
-            //cout << "Correct Solutions: " << i <<", " << j << ", " << ground << ", " << results[i * samples_per_thread + j].energy <<endl;
-            if (abs(ground - results[i * samples_per_thread + j].energy) < 1.e-9) {
-                Correct_Solutions += 1;    
-            }
-        }
-    }*/
-    
-    //for (auto& t : threads) t.join();
 
-    sort(results.begin(), results.end(), [](const result& a, const result& b) {
+    for (int i = 0; i < num_threads; i++) {
+        for (int j = 0; j < samples_per_thread; j++) {
+            CorrectGivenValid_SA_Solutions += CorrectGivenValidSolutionOrNot[i][j];
+            Valid_SA_Solutions += ValidSolutionOrNot[i][j];
+        }
+    }
+
+    std::sort(results.begin(), results.end(), [](const result& a, const result& b) {
         return a.energy < b.energy;
     });
 
     return results;
 }
 
+
 // replaces bottom half with top half
 vector<solution_t> best_effort_unique(const vector<result>& results, int n) {
     if (results.empty()) return {};
     // takes sorted list and replaces bottom half with top half
-    
+
     vector<solution_t> newresults(n);
     for (int i = 0; i < n; i++) {
         newresults[i] = results[i % (results.size() / 2)].solution;
     }
-    
+
     return newresults;
 }
 
-//----------num_branches is actually num_stages-----------//
-vector<result> branch_rejoin_sa(const QUBO& Q, const settings s, int num_threads, int num_branches, int samples_per_thread = 1, string filename = "") {
+//----------num_stages is actually num_stages-----------//
+vector<result> stage_rejoin_sa(const QUBO& Q, const settings s, int num_threads, int num_stages, int samples_per_thread = 1, string filename = "") {
     settings modified_settings = s;
-    modified_settings.max_iter /= num_branches;
+    modified_settings.max_iter /= num_stages;
     vector<result> results;
-    for (int i = 0; i < num_branches; i++) {
+    for (int i = 0; i < num_stages; i++) {
         results = multithreaded_sim_anneal(Q, modified_settings, num_threads, samples_per_thread, best_effort_unique(results, num_threads), filename, i);
-        //cout << "Branch " << i << " best energy: " << results[0].energy << '\n';
-        //cout << "Branch " << i << " worst energy: " << results.back().energy << '\n';
-        //cout << "Temperature at the end of stage " << i << ": " << Temperature <<endl;
+        //std::cout << "Branch " << i << " best energy: " << results[0].energy << '\n';
+        //std::cout << "Branch " << i << " worst energy: " << results.back().energy << '\n';
+        //std::cout << "Temperature_SA at the end of stage " << i << ": " << Temperature_SA <<endl;
     }
-    //cout << "Max Iter for stage: " << modified_settings.max_iter <<endl;
+    //std::cout << "Max Iter for stage: " << modified_settings.max_iter <<endl;
     return results;
 }
 
 ftype linear_scheduler(ftype T_0, ftype T_f, ftype T, int iter, int max_iter, int num_stage) {
-    //return T_0 - double(T_0 / double((max_iter - 1)*STAGES)) * (num_stage*(max_iter - 1)+iter);
     return pow(1 / T_0 - (1 / T_0 - 1 / T_f) * (num_stage * (max_iter - 1) + iter) / (max_iter - 1) / STAGES,-1.);
-    //cout << "checking variable values: " << T_0 << "\t" << max_iter << "\t" << num_stage << "\t" << iter << endl;
 }
 
 scheduler_t make_geometric_scheduler(ftype alpha) {
@@ -589,8 +647,8 @@ scheduler_t make_geometric_scheduler(ftype alpha) {
 
 
 // void trial(solution_t x, const QUBO& Q) {
-//     //cout << "For solution: " << x << endl;
-//     //cout << "Energy: " << Q.evaluate(x) << endl << endl;
+//     //std::cout << "For solution: " << x << endl;
+//     //std::cout << "Energy: " << Q.evaluate(x) << endl << endl;
 // }
 
 void present_results(const vector<result>& results, bool show_sols = true, int precision = 5) {
@@ -606,28 +664,28 @@ void present_results(const vector<result>& results, bool show_sols = true, int p
         counts[d_to_l(r.energy)][r.solution]++;
     }
 
-    //cout << '\n';
+    //std::cout << '\n';
 
-    //cout << fixed << setprecision(precision);
+    //std::cout << fixed << setprecision(precision);
 
-    //cout << "Best energy: " << results[0].energy << '\n';
-    //cout << "Worst energy: " << results.back().energy << '\n';
-    // //cout << "Best solution: " << results[0].solution << '\n';
+    //std::cout << "Best energy: " << results[0].energy << '\n';
+    //std::cout << "Worst energy: " << results.back().energy << '\n';
+    //std::cout << "Best solution: " << results[0].solution << '\n';
 
-    //cout << '\n';
+    //std::cout << '\n';
 
-    for (const auto& [energy, sols] : counts) {
+    /*for (const auto& [energy, sols] : counts) {
         int total = 0;
         for (const auto& [sol, count] : sols) {
             total += count;
         }
-        //cout << "Energy: " << l_to_d(energy) << " (" << total << "x)" << '\n';
+        std::cout << "Energy: " << l_to_d(energy) << " (" << total << "x)" << '\n';
         if (show_sols) {
             for (const auto& [sol, count] : sols) {
-                //cout << "\t Sol: " << sol << " (" << count << "x)" << '\n';
+                std::cout << "\t Sol: " << sol << " (" << count << "x)" << '\n';
             }
         }
-    }
+    }*/
 }
 
 // qubo_t randgen_qubo(int n) {
@@ -661,6 +719,10 @@ struct clustering_result {
     ftype energy;
     ftype ground;
     ftype seconds;
+
+    vector<int> da_assignment;
+    vector<ftype> da_vertices;
+    ftype da_energy;
 };
 
 void json_init(ofstream& jsonfile) {
@@ -689,7 +751,7 @@ void json_append(ofstream& jsonfile, const clustering_result& result) {
         }
         jsonfile << "],\n";
     };
-    
+
     write_ints("assignment", result.assignment);
     write_ints("truth", result.truth);
     write_floats("vertices", result.vertices);
@@ -712,14 +774,14 @@ pair<clustering_result, clustering_result> run_vertexing(string filename) {
 
     event_t event = loadTracks(filename);
 
-    //cout << "Loaded " << event.nT << " tracks\n";
-    //cout << "Loaded " << event.nV << " vertices\n";
+    //std::cout << "Loaded " << event.nT << " tracks\n";
+    //std::cout << "Loaded " << event.nV << " vertices\n";
 
     auto timer_start = chrono::high_resolution_clock::now();
 
     QUBO Q = OTF ? QUBO(event) : event_to_qubo(event);
 
-    // //cout << Q;
+    //std::cout << Q;
 
     random_device rd;
 
@@ -734,21 +796,24 @@ pair<clustering_result, clustering_result> run_vertexing(string filename) {
         .seed = rd(),
         .context = {.event=event, .max_D = get_max_D(event)},
         // .seed = 0,
+        .da_sweeps = DA_SWEEPS,
     };
+
+    ftype seconds;
 
     vector<result> results;
     result best;
-    
+
     auto time_just_before_SA = chrono::high_resolution_clock::now();
-    
-    //results = branch_rejoin_sa(Q, s, thread::hardware_concurrency(), 4, 1); // threads, branches, samples per thread
-    results = branch_rejoin_sa(Q, s, THREADS, STAGES, SAMPLES_PER_THREAD, filename); // adjust threads, branches, samples per thread
-    
+
+    //results = stage_rejoin_sa(Q, s, thread::hardware_concurrency(), 4, 1); // threads, stages, samples per thread
+    results = stage_rejoin_sa(Q, s, THREADS, STAGES, SAMPLES_PER_THREAD, filename); // adjust threads, stages, samples per thread
+
     auto time_just_after_SA = chrono::high_resolution_clock::now();
-    
+
     best = results[0];
 
-    //cout << "\nBranch rejoin (approach B) results: " << '\n';
+    //std::cout << "\nBranch rejoin (approach B) results: " << '\n';
 
     present_results(results, false);
 
@@ -764,11 +829,11 @@ pair<clustering_result, clustering_result> run_vertexing(string filename) {
     // best = results[0];
 
     // if (results[0].energy < best.energy) {
-    //     //cout << "choosing multithreaded result\n";
+    //     std::cout << "choosing multithreaded result\n";
     //     best = results[0];
     // }
 
-    // //cout << "\nMultithreaded (approach C) results: " << '\n';
+    // std::cout << "\nMultithreaded (approach C) results: " << '\n';
 
     // present_results(results, false);
 
@@ -778,11 +843,11 @@ pair<clustering_result, clustering_result> run_vertexing(string filename) {
 
     vector<int> assignment = interpret(best.solution, event.nT, event.nV);
 
-    //cout << "Assignment: \n";
+    //std::cout << "Assignment: \n";
 
     // for (int i = 0; i < assignment.size(); i++) {
-    //     //cout << "Track " << i << " -> Vertex " << assignment[i] << '\n';
-    //     //cout << "track position: " << event.trackData[i].first << " vertex position: " << event.trackData[assignment[i]].first << '\n';
+    //     std::cout << "Track " << i << " -> Vertex " << assignment[i] << '\n';
+    //     std::cout << "track position: " << event.trackData[i].first << " vertex position: " << event.trackData[assignment[i]].first << '\n';
     // }
 
     // map<int, vector<int>> vertex_to_tracks;
@@ -791,38 +856,41 @@ pair<clustering_result, clustering_result> run_vertexing(string filename) {
     // }
 
     // for (const auto& [vertex, tracks] : vertex_to_tracks) {
-    //     //cout << "Vertex " << vertex << " tracks (" << tracks.size() << "): \n";
+    //     std::cout << "Vertex " << vertex << " tracks (" << tracks.size() << "): \n";
     //     for (int track : tracks) {
-    //         //cout << track << " position: " << event.trackData[track].first 
+    //         std::cout << track << " position: " << event.trackData[track].first
     //         // << " error: " << event.trackData[track].second
     //         << '\n';
     //     }
-    //     //cout << '\n';
+    //     std::cout << '\n';
     // }
 
     ftype ari = print_score(assignment, event);
 
     ftype ground = ground_state(Q, event);
 
-    //cout << "Ground state: " << ground << '\n';
-    //cout << "Best energy: " << best.energy << '\n';
-    //cout << "ratio: " << best.energy / ground << '\n';
-    //cout << "diff: " << best.energy - ground << '\n';
-
+    //std::cout << "Ground state: " << ground << '\n';
+    //std::cout << "Best energy: " << best.energy << '\n';
+    //std::cout << "ratio: " << best.energy / ground << '\n';
+    //std::cout << "diff: " << best.energy - ground << '\n';
 
     vector<ftype> vertices = assignment_to_vertices(assignment, event);
     ftype mse = vertex_mse(vertices, event);
-    //cout << "MSE: " << mse << '\n';
+    //std::cout << "MSE: " << mse << '\n';
 
     vector<int> truth;
     for (int i = 0; i < event.nT; i++) {
         truth.push_back(i / round(event.nT/event.nV));
     }
 
+    //std::cout << "event.nT = " << event.nT << ", event.nV = " << event.nV <<endl;
+
     //ftype seconds = chrono::duration_cast<chrono::milliseconds>(chrono::high_resolution_clock::now() - timer_start).count() / 1000.0;
-    ftype seconds = chrono::duration_cast<chrono::milliseconds>(time_just_after_SA - time_just_before_SA).count() / 1000.0;
-    
+
+    seconds = std::chrono::duration_cast<std::chrono::microseconds>(time_just_after_SA - time_just_before_SA).count();
+
     clustering_result sa_result = {filename, assignment, truth, vertices, event.vertices, best.energy, ground, seconds};
+
     // json_append(sa_stream, sa_result);
 
     // logfile_append("sa.csv", filename, ari, best.energy - ground, mse, ground);
@@ -830,41 +898,79 @@ pair<clustering_result, clustering_result> run_vertexing(string filename) {
     // return 0; // skip da.
 
     auto timer_mid = chrono::high_resolution_clock::now();
-    //cout << "SA time elapsed: " << seconds << " seconds\n";
+    //std::cout << "SA time elapsed: " << seconds << " seconds\n";
 
-    //cout << "running da\n";
+    //std::cout << "running da\n";
 
-    pair<vector<int>, vector<ftype>> da_result = runDA(event);
+    auto time_just_before_DA = chrono::high_resolution_clock::now();
+
+    pair<vector<int>, vector<ftype>> da_result = runDA(event,DA_SWEEPS);
 
     vector<int> da_assignment = da_result.first;
+
+    /*std::cout << "DA assignments and truth: ";
+    for (int o=0;o<da_assignment.size();o++) {
+        std::cout << da_assignment[o] << "\t" << truth[o] << endl;
+    }*/
+
+    std::map<int,std::set<int>> num_tracks_assigned_to_assigned_vertex_DA;
+    for (int i_internal=0; i_internal<s.context.event.nT; i_internal++) {
+        num_tracks_assigned_to_assigned_vertex_DA[da_assignment[i_internal]].insert(i_internal);
+    }
+
+    std::set<std::set<int>> valueSetsInMap_assigned_DA;
+    for (const auto& pairs : num_tracks_assigned_to_assigned_vertex_DA) {
+        valueSetsInMap_assigned_DA.insert(pairs.second);
+    }
+
+    /*bool flag_correct_DA = false; // Default to false
+    if (valueSetsInMap_assigned_DA.size() == valueSetsInMap_truth.size()) {
+        auto assigned_clusters_DA = convertAndSortClusters(valueSetsInMap_assigned_DA);
+        auto truth_clusters = convertAndSortClusters(valueSetsInMap_truth);
+        flag_correct_DA = (assigned_clusters_DA == truth_clusters);
+    }*/
+
+    bool flag_correct_DA = false;
+    if (valueSetsInMap_assigned_DA.size() == valueSetsInMap_truth.size()) {
+        flag_correct_DA = (valueSetsInMap_assigned_DA == valueSetsInMap_truth);
+    }
+
+    if(flag_correct_DA) {
+        Correct_DA_Solutions = 1;
+    }
+    else {
+        Correct_DA_Solutions = 0;
+    }
+    
+    auto time_just_after_DA = chrono::high_resolution_clock::now();
 
     ari = print_score(da_assignment, event);
 
     ftype da_energy = energy_from_assignment(da_assignment, Q, event.nT, event.nV);
 
-    //cout << "Ground state: " << ground << '\n';
-    //cout << "DA energy: " << da_energy << '\n';
-    //cout << "ratio: " << da_energy / ground << '\n';
-    //cout << "diff: " << da_energy - ground << '\n';
+    //std::cout << "Ground state: " << ground << '\n';
+    //std::cout << "DA energy: " << da_energy << '\n';
+    //std::cout << "ratio: " << da_energy / ground << '\n';
+    //std::cout << "diff: " << da_energy - ground << '\n';
 
     // vector<ftype> da_vertices = assignment_to_vertices(da_assignment, event);
     vector<ftype> da_vertices = da_result.second;
-    
+
     ftype da_mse = vertex_mse(da_vertices, event);
-    //cout << "DA MSE: " << da_mse << '\n';
+    //std::cout << "DA MSE: " << da_mse << '\n';
 
     auto timer_end = chrono::high_resolution_clock::now();
 
-    seconds = chrono::duration_cast<chrono::milliseconds>(timer_end - timer_mid).count() / 1000.0;
+    seconds = std::chrono::duration_cast<std::chrono::microseconds>(time_just_after_DA - time_just_before_DA).count();
 
     clustering_result da_clustering_result = {filename, da_assignment, truth, da_vertices, event.vertices, da_energy, ground, seconds};
     // json_append(da_stream, da_clustering_result);
 
     // logfile_append("da.csv", filename, ari, da_energy - ground, da_mse, ground);
 
-    // //cout << "SA time elapsed: " << chrono::duration_cast<chrono::seconds>(timer_mid - timer_start).count() << " seconds\n";
-    // //cout << "DA time elapsed: " << chrono::duration_cast<chrono::seconds>(timer_end - timer_mid).count() << " seconds\n";
-    //cout << "Total time elapsed: " << chrono::duration_cast<chrono::seconds>(timer_end - timer_start).count() << " seconds\n";
+    //std::cout << "SA time elapsed: " << chrono::duration_cast<chrono::seconds>(timer_mid - timer_start).count() << " seconds\n";
+    //std::cout << "DA time elapsed: " << chrono::duration_cast<chrono::seconds>(timer_end - timer_mid).count() << " seconds\n";
+    //std::cout << "Total time elapsed: " << chrono::duration_cast<chrono::seconds>(timer_end - timer_start).count() << " seconds\n";
 
     return {sa_result, da_clustering_result};
 }
@@ -900,8 +1006,103 @@ bool createDirectoriesRecursively(const std::string& path) {
     return true;
 }
 
+ftype get_t_crit(ftype alpha, size_t df) {
+    boost::math::students_t dist(df);
+    return boost::math::quantile(dist,1.0 - alpha/2.0);
+}
+
+std::pair<ftype, std::pair<ftype, ftype>> calculate_se_mean_bin(const std::vector<ftype>& y) {
+    size_t n = y.size();
+
+    if (n == 0) {
+        return std::make_pair(0.0, std::make_pair(0.0, 0.0));
+    }
+
+    // Handle the n=1 case specifically
+    else if (n == 1) {
+        // The t-critical value is undefined for 0 degrees of freedom (n-1).
+        // A confidence interval cannot be formed. Return 0.0 for the t-value and se_mean.
+        // Or, you could return std::numeric_limits<ftype>::infinity() for the t-value
+        // to signify an infinitely wide interval.
+        ftype y_mean = y[0];
+        return std::make_pair(0.0, std::make_pair(y_mean, 0.0));
+    }
+
+    else {
+        ftype y_mean = 0.0;
+        for (const ftype& yi : y) {
+            y_mean += yi;
+        }
+        y_mean /= n;
+
+        ftype sum_sq_diff = 0.0;
+        for (const ftype& yi : y) {
+            sum_sq_diff += (yi - y_mean) * (yi - y_mean);
+        }
+
+        // n > 1 is guaranteed by the check above
+        ftype s_y = std::sqrt(sum_sq_diff / (n - 1));
+        ftype se_mean = s_y / std::sqrt(n);
+
+        // This call is now safe because n > 1
+        ftype t_crit = get_t_crit(0.05, n - 1);
+
+        return std::make_pair(t_crit, std::make_pair(y_mean, se_mean));
+    }
+}
+
+
+/*// Clopper Pearson
+std::tuple<ftype, ftype, ftype> calculate_se_mean_bin(const std::vector<ftype>& y) {
+    const ftype confidence_level = 0.95;
+
+    ftype alpha_CI = 1 - confidence_level;
+    const ftype z_alpha = 1.96;
+
+    ftype lower_bound = 0.0;
+    ftype upper_bound = 1.0;
+
+    size_t n = y.size();
+
+    if (n == 0) {
+        return std::make_tuple(0.0, 0.0, 0.0);
+    }
+
+    // Handle the n=1 case specifically
+    else if (n == 1) {
+        // The t-critical value is undefined for 0 degrees of freedom (n-1).
+        // A confidence interval cannot be formed. Return 0.0 for the t-value and se_mean.
+        // Or, you could return std::numeric_limits<ftype>::infinity() for the t-value
+        // to signify an infinitely wide interval.
+        ftype y_mean = y[0];
+        return std::make_tuple(y_mean, y_mean, y_mean);
+    }
+
+    else {
+        ftype y_mean = 0.0;
+        for (const ftype& yi : y) {
+            y_mean += yi;
+        }
+
+        y_mean /= n;
+
+        ftype sd = z_alpha * sqrt(y_mean*(1-y_mean)/n);
+
+        lower_bound = y_mean - sd;
+
+        upper_bound = y_mean + sd;
+
+        //lower_bound = (y_mean != 0.0) ? boost::math::quantile(boost::math::beta_distribution<>(y_mean * SAMPLES_PER_THREAD * THREADS, SAMPLES_PER_THREAD * THREADS - y_mean * SAMPLES_PER_THREAD * THREADS + 1), alpha_CI / 2.0) : 0.0;
+
+        //upper_bound = (y_mean < 1) ? boost::math::quantile(boost::math::beta_distribution<>(y_mean * SAMPLES_PER_THREAD * THREADS + 1, SAMPLES_PER_THREAD * THREADS - y_mean * SAMPLES_PER_THREAD * THREADS), 1.0 - (alpha_CI / 2.0)) : 1.0;
+
+        return std::make_tuple(y_mean, upper_bound, lower_bound);
+    }
+}*/
+
+
 int main(int argc, char* argv[]) {
-    if (argc != 8) { // argv[0] is program name, argv[1..4] are THREADS, STAGES, SAMPLES_PER_THREAD, SWEEPS
+    if (argc != 9) { // argv[0] is program name, argv[1..5] are THREADS, STAGES, SAMPLES_PER_THREAD, SWEEPS, DA_SWEEPS
         std::cerr << "Usage: ./annealer <THREADS> <STAGES> <SAMPLES_PER_THREAD> <input_filename> <output_filenames_prefix> <name_or_extension>" << std::endl;
         return 1;
     }
@@ -911,34 +1112,138 @@ int main(int argc, char* argv[]) {
     STAGES = std::atoi(argv[2]);
     SAMPLES_PER_THREAD = std::atoi(argv[3]);
     SWEEPS = std::atoi(argv[4]);
+    DA_SWEEPS = std::atoi(argv[5]);
 
     // Print received values (for debugging or logging)
     //std::cout << "Received: THREADS=" << THREADS << ", STAGES=" << STAGES << ", SAMPLES_PER_THREAD=" << SAMPLES_PER_THREAD << ", SWEEPS=" << SWEEPS << std::endl;
-    
-    double SA_TIME_AVG = 0.;
-    
-    double SA_Convergence_Efficiency = 0.;
-    
-    int total_Correct_Solutions = 0;
-    
-    string filename_base = argv[5];
-    
-    string extension = argv[7];
-    
-    std::string dir_name_str = std::string(argv[6]) + "/" + std::to_string(THREADS) + "threads_" + std::to_string(STAGES) + "stages_" + std::to_string(SAMPLES_PER_THREAD) + "SamplesPerThread_" + std::to_string(SWEEPS) + "sweeps";
+
+    ftype SA_TIME_AVG = 0.;
+
+    ftype SA_Convergence_Efficiency = 0.;
+
+    int total_CorrectGivenValid_SA_Solutions = 0;
+
+    int total_Valid_SA_Solutions = 0;
+
+    ftype DA_TIME_AVG = 0.;
+
+    ftype DA_Convergence_Efficiency = 0.;
+
+    int total_Correct_DA_Solutions = 0;
+
+    int total_Valid_DA_Solutions = 0;
+
+    string filename_base = argv[6];
+
+    string extension = argv[8];
+
+    std::string dir_name_str = std::string(argv[7]) + "/" + std::to_string(THREADS) + "threads_" + std::to_string(STAGES) + "stages_" + std::to_string(SAMPLES_PER_THREAD) + "SamplesPerThread_" + std::to_string(SWEEPS) + "sweeps_" + std::to_string(DA_SWEEPS) + "DAsweeps";
     if (createDirectoriesRecursively(dir_name_str)) {
-        //std::cout << "Directories created or already existed.\n";
+        std::cout << "Directories created or already existed.\n";
     } else {
         std::cerr << "Failed to create directories.\n";
     }
-    
-    int num_files = 1;
 
-    //cout << "Running " << num_files << " files\n";
-    
-    string SA_out_filename = dir_name_str + "/sa_w_omp_min_dunn.json";
-    string DA_out_filename = dir_name_str + "/da_min_dunn.json";
-    
+    std::string original1 = "ConvergenceEfficiency_and_TimePerAnneal.txt";
+    //std::string renamed_original1 = std::string(argv[7])+"/"+std::string(argv[7])+"_"+original1;
+    std::string renamed_original1 = dir_name_str+"/"+std::string(argv[7])+"_"+original1;
+
+    // Check if original1 file exists
+    if (file_exists(original1)) {
+        std::cout << "original1 file exists. Renaming to renamed_original1.\n";
+        if (std::rename(original1.c_str(), renamed_original1.c_str()) != 0) {
+            std::perror("Error renaming file");
+            return 1;
+        }
+        else {
+            std::cout << "File moved and renamed successfully" << endl;
+        }
+    } else if (file_exists(renamed_original1)) {
+        std::cout << "original1 file not found. Using existing renamed_original1.\n";
+    } else {
+        std::cerr << "Neither original1 nor renamed_original1 file exists. Nothing to append to.\n";
+        return 1;
+    }
+
+    // Open the renamed_original1 file in append mode
+    std::ofstream outFile1(renamed_original1, std::ios::app);
+    if (!outFile1) {
+        std::cerr << "Failed to open file for appending.\n";
+        return 1;
+    }
+
+    std::string original2 = "ConvergenceEfficiency_and_DunnIndex_Binning.txt";
+    //std::string renamed_original2 = std::string(argv[7])+"/"+std::string(argv[7])+"_"+original2;
+    std::string renamed_original2 = dir_name_str+"/"+std::string(argv[7])+"_"+original2;
+
+    // Check if original2 file exists
+    if (file_exists(original2)) {
+        std::cout << "original2 file exists. Renaming to renamed_original2.\n";
+        if (std::rename(original2.c_str(), renamed_original2.c_str()) != 0) {
+            std::perror("Error renaming file");
+            return 1;
+        }
+        else {
+            std::cout << "File moved and renamed successfully" << endl;
+        }
+    } else if (file_exists(renamed_original2)) {
+        std::cout << "original2 file not found. Using existing renamed_original2.\n";
+    } else {
+        std::cerr << "Neither original2 nor renamed_original2 file exists. Nothing to append to.\n";
+        return 1;
+    }
+
+    // Open the renamed_original2 file in append mode
+    std::ofstream outFile2(renamed_original2, std::ios::app);
+    if (!outFile2) {
+        std::cerr << "Failed to open file for appending.\n";
+        return 1;
+    }
+
+    //std::vector<ftype> dunn_index_bins_edges = {0, 2, 4, 6, 10, 20, 40, 60};
+    std::vector<ftype> dunn_index_bins_edges = {0, 2, 4, 6, 10, 15};
+    std::vector<ftype> dunn_index_bins_centers;
+    for (int i=0;i<dunn_index_bins_edges.size()-1;i++) {
+        dunn_index_bins_centers.push_back((dunn_index_bins_edges[i+1]+dunn_index_bins_edges[i])/2);
+
+    }
+    //dunn_index_bins_centers.push_back(80);
+    dunn_index_bins_centers.push_back(30);
+
+    std::vector<ftype> dunn_sample_counts = std::vector<ftype>(dunn_index_bins_centers.size(),0);
+
+    std::vector<ftype> t_dist_Valid_SA_val = std::vector<ftype>(dunn_index_bins_centers.size(),0);
+    std::vector<ftype> t_dist_CorrectGivenValid_SA_val = std::vector<ftype>(dunn_index_bins_centers.size(),0);
+    std::vector<ftype> t_dist_Correct_DA_val = std::vector<ftype>(dunn_index_bins_centers.size(),0);
+
+    std::vector<ftype> SAConvEff_Valid_Solutions_dunn = std::vector<ftype>(dunn_index_bins_centers.size(),0);
+    std::vector<ftype> SAConvEff_Valid_Solutions_dunn_upper = std::vector<ftype>(dunn_index_bins_centers.size(),0);
+    std::vector<ftype> SAConvEff_Valid_Solutions_dunn_lower = std::vector<ftype>(dunn_index_bins_centers.size(),0);
+    std::vector<ftype> SAConvEff_Valid_Solutions_dunn_sample_sd = std::vector<ftype>(dunn_index_bins_centers.size(),0);
+
+    std::vector<ftype> SAConvEff_CorrectGivenValid_Solutions_dunn = std::vector<ftype>(dunn_index_bins_centers.size(),0);
+    std::vector<ftype> SAConvEff_CorrectGivenValid_Solutions_dunn_upper = std::vector<ftype>(dunn_index_bins_centers.size(),0);
+    std::vector<ftype> SAConvEff_CorrectGivenValid_Solutions_dunn_lower = std::vector<ftype>(dunn_index_bins_centers.size(),0);
+    std::vector<ftype> SAConvEff_CorrectGivenValid_Solutions_dunn_sample_sd = std::vector<ftype>(dunn_index_bins_centers.size(),0);
+
+    std::vector<std::vector<ftype>> SAConvEff_Valid_Solutions_dunn_binned(dunn_index_bins_centers.size());
+
+    std::vector<std::vector<ftype>> SAConvEff_CorrectGivenValid_Solutions_dunn_binned(dunn_index_bins_centers.size());
+
+    std::vector<ftype> DAConvEff_Correct_Solutions_dunn = std::vector<ftype>(dunn_index_bins_centers.size(),0);
+    std::vector<ftype> DAConvEff_Correct_Solutions_dunn_upper = std::vector<ftype>(dunn_index_bins_centers.size(),0);
+    std::vector<ftype> DAConvEff_Correct_Solutions_dunn_lower = std::vector<ftype>(dunn_index_bins_centers.size(),0);
+    std::vector<ftype> DAConvEff_Correct_Solutions_dunn_sample_sd = std::vector<ftype>(dunn_index_bins_centers.size(),0);
+
+    std::vector<std::vector<ftype>> DAConvEff_Correct_Solutions_dunn_binned(dunn_index_bins_centers.size());
+
+    int num_files = 100;
+
+    //std::cout << "Running " << num_files << " files\n";
+
+    string SA_out_filename = dir_name_str + "/sa_w_omp_dunn.json";
+    string DA_out_filename = dir_name_str + "/da_dunn.json";
+
     ofstream sa_stream(SA_out_filename);
     ofstream da_stream(DA_out_filename);
 
@@ -946,92 +1251,196 @@ int main(int argc, char* argv[]) {
     json_init(da_stream);
 
     for (int i = 1; i <= num_files; i++) {
-        //cout << "Running file " << i << '\n';
+        //std::cout << "Running file " << i << '\n';
 
         string filename = filename_base+to_string(i)+extension;
-        
+
+        event_t event = loadTracks(filename);
+
+        vector<uint8_t> truth;
+        for (int i_int = 0; i_int < event.nT; i_int++) {
+            truth.push_back(i_int / round(event.nT/event.nV));
+        }
+
+        int_truth.clear();
+        for (uint8_t val1 : truth) {
+            int_truth.push_back(static_cast<int>(val1));
+        }
+
+        std::map<int,std::set<int>> num_tracks_assigned_to_truth_vertex;
+        for (int i_internal=0; i_internal<event.nT; i_internal++) {
+            num_tracks_assigned_to_truth_vertex[int_truth[i_internal]].insert(i_internal);
+        }
+
+        valueSetsInMap_truth.clear();
+        for (const auto& pairs : num_tracks_assigned_to_truth_vertex) {
+            valueSetsInMap_truth.insert(pairs.second);
+        }
+
+        sorted_truth_clusters.clear();
+        for (const auto& cluster : valueSetsInMap_truth) {
+            vector<int> tmp(cluster.begin(), cluster.end());
+            std::sort(tmp.begin(), tmp.end());
+            sorted_truth_clusters.push_back(std::move(tmp));
+        }
+        std::sort(sorted_truth_clusters.begin(), sorted_truth_clusters.end());
+
         pair<clustering_result, clustering_result> p = run_vertexing(filename);
         //if (i!=1) sa_stream << ",\n"; json_append(sa_stream, p.first);
         //if (i!=1) da_stream << ",\n"; json_append(da_stream, p.second);
-        
+
         //3Vertices_5Tracks is from older folder which actually contained total number of tracks instead of tracks/vertex
-        
-        SA_TIME_AVG += p.first.seconds;
-        
+
+        SA_TIME_AVG = p.first.seconds;
+        DA_TIME_AVG = p.second.seconds;
+
         sa_stream << ",\n"; json_append(sa_stream, p.first);
         da_stream << ",\n"; json_append(da_stream, p.second);
-        
-        total_Correct_Solutions += Correct_Solutions;
-        
-        sa_stream << "\n time for sa for each problem: " << p.first.seconds << endl;
-        sa_stream << "Temperature: " << Temperature << endl;
-        sa_stream << "Number of Correct Solutions: " << Correct_Solutions <<endl;
-        
-        //cout << "Done with file " << i << '\n';
-    }
-    
-    //cout << "SA TIME AVG = " << SA_TIME_AVG << ", total SAs = " << SAMPLES_PER_THREAD*STAGES*num_files <<endl;
-    
-    ftype SAConvEff = double(total_Correct_Solutions/double(num_files*SAMPLES_PER_THREAD*THREADS));
-    
-    /*ftype SAavgTimePerAnneal = 0.0;
-    for (int j = 0; j < SAMPLES_PER_THREAD; j++) {
-        SAavgTimePerAnneal += SATimePerThreadsAnneal[j];
-    }
-    SAavgTimePerAnneal = double(SAavgTimePerAnneal/(double(THREADS*SAMPLES_PER_THREAD*num_files)));*/
-    
-    SA_TIME_AVG = double(SA_TIME_AVG/(double(THREADS*SAMPLES_PER_THREAD*num_files)));
-    
-    //Remove this below if stages != 1
-    /*ftype SAavgTimePerAnneal_sigma = 0.;
-    for (int j = 0; j < SAMPLES_PER_THREAD; j++) {
-        //cout << "printint times: " <<SATimePerThreadsAnneal[j]/THREADS <<", "<<SAavgTimePerAnneal<<endl;
-        SAavgTimePerAnneal_sigma += pow(SATimePerThreadsAnneal[j]/THREADS - SAavgTimePerAnneal,2.);
-    }
-    SAavgTimePerAnneal_sigma = sqrt(double(SAavgTimePerAnneal_sigma*THREADS/double(num_files*SAMPLES_PER_THREAD*THREADS - 1)));*/
-    //Remove this above if stages != 1
-    
-    
-    
-    
-    
-    
-    sa_stream << "\n total correct solutions: " << total_Correct_Solutions << ", SA Convergence Efficiency: " << SAConvEff;
-    //sa_stream << "\n Average SA time: " << SAavgTimePerAnneal;
-    
-    json_close(sa_stream);
-    json_close(da_stream);
-    
-    std::string original = "SA_ConvergenceEfficiency_and_TimePerAnneal.txt";
-    std::string renamed_original = std::string(argv[6])+"/"+std::string(argv[6])+"SA_ConvergenceEfficiency_and_TimePerAnneal.txt";
 
-    // Check if original file exists
-    if (file_exists(original)) {
-        //std::cout << "Original file exists. Renaming to renamed_original.\n";
-        if (std::rename(original.c_str(), renamed_original.c_str()) != 0) {
-            std::perror("Error renaming file");
-            return 1;
+        total_CorrectGivenValid_SA_Solutions = CorrectGivenValid_SA_Solutions;
+        total_Valid_SA_Solutions = Valid_SA_Solutions;
+
+        sa_stream << "\n time for sa for each problem: " << p.first.seconds << endl;
+        sa_stream << "Temperature_SA: " << Temperature_SA << endl;
+        sa_stream << "Number of Correct Solutions given valid: " << total_CorrectGivenValid_SA_Solutions <<endl;
+        sa_stream << "Number of valid Solutions: " << total_Valid_SA_Solutions <<endl;
+
+        //std::cout << "Done with file " << i << '\n';
+
+        //std::cout << "SA TIME AVG = " << SA_TIME_AVG << ", total SAs = " << SAMPLES_PER_THREAD*STAGES*num_files <<endl;
+
+        ftype SAConvEff_Valid_Solutions = ftype(total_Valid_SA_Solutions/ftype(SAMPLES_PER_THREAD*THREADS));
+        ftype SAConvEff_CorrectGivenValid_Solutions = (total_Valid_SA_Solutions != 0) ? ftype(total_CorrectGivenValid_SA_Solutions/ftype(total_Valid_SA_Solutions)) : 0;
+
+        SA_TIME_AVG = ftype(SA_TIME_AVG/(ftype(THREADS*SAMPLES_PER_THREAD)));
+
+        sa_stream << "\n total correct solutions: " << total_CorrectGivenValid_SA_Solutions << ", SA Convergence Efficiency correct solutions: " << SAConvEff_CorrectGivenValid_Solutions << ", SA Convergence Efficiency valid solutions: " << SAConvEff_Valid_Solutions;
+        //sa_stream << "\n Average SA time: " << SAavgTimePerAnneal;
+
+
+        total_Correct_DA_Solutions = Correct_DA_Solutions;
+
+        da_stream << "\n time for da for each problem: " << p.second.seconds << endl;
+        da_stream << "Temperature_DA: " << Temperature_DA << endl;
+        da_stream << "Number of Correct Solutions given valid: " << total_Correct_DA_Solutions <<endl;
+
+        //std::cout << "Done with file " << i << '\n';
+
+        //std::cout << "DA TIME AVG = " << DA_TIME_AVG << ", total DAs = " << SAMPLES_PER_THREAD*STAGES*num_files <<endl;
+
+        ftype DAConvEff_Correct_Solutions = total_Correct_DA_Solutions;
+
+        da_stream << "\n total correct solutions: " << total_Correct_DA_Solutions << ", DA Convergence Efficiency correct solutions: " << DAConvEff_Correct_Solutions;
+        //da_stream << "\n Average DA time: " << DAavgTimePerAnneal;
+
+        /*ftype SAavgTimePerAnneal = 0.0;
+        for (int j = 0; j < SAMPLES_PER_THREAD; j++) {
+            SAavgTimePerAnneal += SATimePerThreadsAnneal[j];
+        }
+        SAavgTimePerAnneal = ftype(SAavgTimePerAnneal/(ftype(THREADS*SAMPLES_PER_THREAD*num_files)));*/
+
+        //Remove this below if stages != 1
+        /*ftype SAavgTimePerAnneal_sigma = 0.;
+        for (int j = 0; j < SAMPLES_PER_THREAD; j++) {
+            std::cout << "printint times: " <<SATimePerThreadsAnneal[j]/THREADS <<", "<<SAavgTimePerAnneal<<endl;
+            SAavgTimePerAnneal_sigma += pow(SATimePerThreadsAnneal[j]/THREADS - SAavgTimePerAnneal,2.);
+        }
+        SAavgTimePerAnneal_sigma = sqrt(ftype(SAavgTimePerAnneal_sigma*THREADS/ftype(num_files*SAMPLES_PER_THREAD*THREADS - 1)));*/
+        //Remove this above if stages != 1
+
+        json_close(sa_stream);
+        json_close(da_stream);
+
+        ftype dunn_idx = calculate_dunn_index(p.second.truth, event, event.nV, event.vertices);
+
+        bool Condition;
+
+        for (int j=0 ; j<dunn_index_bins_edges.size() ; j++) {
+            Condition = false;
+            if (j==dunn_index_bins_edges.size()-1) {
+                if (dunn_idx >= dunn_index_bins_edges[j]) {
+                    Condition = true;
+                }
+            }
+            else {
+                if (dunn_idx >= dunn_index_bins_edges[j] && dunn_idx < dunn_index_bins_edges[j+1]) {
+                    Condition = true;
+                }
+            }
+
+            if (Condition) {
+                SAConvEff_Valid_Solutions_dunn_binned[j].push_back(SAConvEff_Valid_Solutions);
+
+                SAConvEff_CorrectGivenValid_Solutions_dunn_binned[j].push_back(SAConvEff_CorrectGivenValid_Solutions);
+
+                DAConvEff_Correct_Solutions_dunn_binned[j].push_back(DAConvEff_Correct_Solutions);
+            }
+        }
+
+        // Append data
+        outFile1 << THREADS <<"\t"<< STAGES << "\t" << SWEEPS << "\t" << DA_SWEEPS << "\t" << dunn_idx << "\t" << SAConvEff_Valid_Solutions << "\t" << SAConvEff_CorrectGivenValid_Solutions << "\t" << SA_TIME_AVG  << "\t" << DAConvEff_Correct_Solutions << "\t" << DA_TIME_AVG << endl;
+    }
+    outFile1.close();
+
+    for (int j = 0; j < dunn_index_bins_centers.size(); j++) {
+        // Call once for SA Valid Solutions
+        auto sa_valid_result = calculate_se_mean_bin(SAConvEff_Valid_Solutions_dunn_binned[j]);
+        t_dist_Valid_SA_val[j] = sa_valid_result.first;
+        SAConvEff_Valid_Solutions_dunn[j] = sa_valid_result.second.first;
+        SAConvEff_Valid_Solutions_dunn_sample_sd[j] = sa_valid_result.second.second;
+        SAConvEff_Valid_Solutions_dunn_upper[j] = SAConvEff_Valid_Solutions_dunn[j] + SAConvEff_Valid_Solutions_dunn_sample_sd[j];
+        SAConvEff_Valid_Solutions_dunn_lower[j] = SAConvEff_Valid_Solutions_dunn[j] - SAConvEff_Valid_Solutions_dunn_sample_sd[j];
+
+        // Call once for SA Correct Given Valid Solutions
+        auto sa_correct_result = calculate_se_mean_bin(SAConvEff_CorrectGivenValid_Solutions_dunn_binned[j]);
+        t_dist_CorrectGivenValid_SA_val[j] = sa_correct_result.first;
+        SAConvEff_CorrectGivenValid_Solutions_dunn[j] = sa_correct_result.second.first;
+        SAConvEff_CorrectGivenValid_Solutions_dunn_sample_sd[j] = sa_correct_result.second.second;
+        SAConvEff_CorrectGivenValid_Solutions_dunn_upper[j] = SAConvEff_CorrectGivenValid_Solutions_dunn[j] + SAConvEff_CorrectGivenValid_Solutions_dunn_sample_sd[j];
+        SAConvEff_CorrectGivenValid_Solutions_dunn_lower[j] = SAConvEff_CorrectGivenValid_Solutions_dunn[j] - SAConvEff_CorrectGivenValid_Solutions_dunn_sample_sd[j];
+
+        // Call once for DA Correct Solutions
+        auto da_correct_result = calculate_se_mean_bin(DAConvEff_Correct_Solutions_dunn_binned[j]);
+        t_dist_Correct_DA_val[j] = da_correct_result.first;
+        DAConvEff_Correct_Solutions_dunn[j] = da_correct_result.second.first;
+        DAConvEff_Correct_Solutions_dunn_sample_sd[j] = da_correct_result.second.second;
+        DAConvEff_Correct_Solutions_dunn_upper[j] = DAConvEff_Correct_Solutions_dunn[j] + DAConvEff_Correct_Solutions_dunn_sample_sd[j];
+        DAConvEff_Correct_Solutions_dunn_lower[j] = DAConvEff_Correct_Solutions_dunn[j] - DAConvEff_Correct_Solutions_dunn_sample_sd[j];
+
+        //std::cout << "calculate_se_mean_bin " << SAConvEff_Valid_Solutions_dunn_binned[j][0] << "\t" << SAConvEff_Valid_Solutions_dunn[j] << endl;
+    }
+
+    for (int j=0;j<dunn_index_bins_centers.size();j++) {
+        if (j<dunn_index_bins_centers.size()-1) {
+            outFile2 << THREADS <<"\t"<< STAGES << "\t" << SWEEPS << "\t" << DA_SWEEPS << "\t" << t_dist_Valid_SA_val[j] << "\t" << dunn_index_bins_centers[j] << "\t" << dunn_index_bins_edges[j] << "\t" << dunn_index_bins_edges[j+1] << "\t" << SAConvEff_Valid_Solutions_dunn[j] << "\t" << SAConvEff_Valid_Solutions_dunn_sample_sd[j] << "\t" << SAConvEff_CorrectGivenValid_Solutions_dunn[j] << "\t" << SAConvEff_CorrectGivenValid_Solutions_dunn_sample_sd[j] << "\t" << DAConvEff_Correct_Solutions_dunn[j] << "\t" << DAConvEff_Correct_Solutions_dunn_sample_sd[j] << endl;
         }
         else {
-            //std::cout << "File moved and renamed successfully" << endl;
+            outFile2 << THREADS <<"\t"<< STAGES << "\t" << SWEEPS << "\t" << DA_SWEEPS << "\t" << t_dist_Valid_SA_val[j] << "\t" << dunn_index_bins_centers[j] << "\t" << dunn_index_bins_edges[j] << "\t" << 100 << "\t" << SAConvEff_Valid_Solutions_dunn[j] << "\t" << SAConvEff_Valid_Solutions_dunn_sample_sd[j] << "\t" << SAConvEff_CorrectGivenValid_Solutions_dunn[j] << "\t" << SAConvEff_CorrectGivenValid_Solutions_dunn_sample_sd[j] << "\t" << DAConvEff_Correct_Solutions_dunn[j] << "\t" << DAConvEff_Correct_Solutions_dunn_sample_sd[j] << endl;
         }
-    } else if (file_exists(renamed_original)) {
-        //std::cout << "Original file not found. Using existing renamed_original.\n";
-    } else {
-        std::cerr << "Neither original nor renamed_original file exists. Nothing to append to.\n";
-        return 1;
     }
 
-    // Open the renamed_original file in append mode
-    std::ofstream outFile(renamed_original, std::ios::app);
-    if (!outFile) {
-        std::cerr << "Failed to open file for appending.\n";
-        return 1;
+    /*for (int j = 0; j < dunn_index_bins_centers.size(); j++) {
+        // Call once for SA Valid Solutions
+        tie(SAConvEff_Valid_Solutions_dunn[j], SAConvEff_Valid_Solutions_dunn_upper[j], SAConvEff_Valid_Solutions_dunn_lower[j]) = calculate_se_mean_bin(SAConvEff_Valid_Solutions_dunn_binned[j]);
+
+        // Call once for SA Correct Given Valid Solutions
+        tie(SAConvEff_CorrectGivenValid_Solutions_dunn[j], SAConvEff_CorrectGivenValid_Solutions_dunn_upper[j], SAConvEff_CorrectGivenValid_Solutions_dunn_lower[j]) = calculate_se_mean_bin(SAConvEff_CorrectGivenValid_Solutions_dunn_binned[j]);
+
+        // Call once for DA Correct Solutions
+        tie(DAConvEff_Correct_Solutions_dunn[j], DAConvEff_Correct_Solutions_dunn_upper[j], DAConvEff_Correct_Solutions_dunn_lower[j]) = calculate_se_mean_bin(DAConvEff_Correct_Solutions_dunn_binned[j]);
     }
 
-    // Append data
-    outFile << THREADS <<"\t"<< STAGES << "\t" << SWEEPS << "\t" << SAConvEff << "\t" << SA_TIME_AVG << endl;
-    outFile.close();
-    
+
+    for (int j=0;j<dunn_index_bins_centers.size();j++) {
+        if (j<dunn_index_bins_centers.size()-1) {
+            outFile2 << THREADS <<"\t"<< STAGES << "\t" << SWEEPS << "\t" << t_dist_Valid_SA_val[j] << "\t" << dunn_index_bins_centers[j] << "\t" << dunn_index_bins_edges[j] << "\t" << dunn_index_bins_edges[j+1] << "\t" << SAConvEff_Valid_Solutions_dunn[j] << "\t" << SAConvEff_Valid_Solutions_dunn_upper[j] << "\t" << SAConvEff_Valid_Solutions_dunn_lower[j] << "\t" << SAConvEff_CorrectGivenValid_Solutions_dunn[j] << "\t" << SAConvEff_CorrectGivenValid_Solutions_dunn_upper[j] << "\t" << SAConvEff_CorrectGivenValid_Solutions_dunn_lower[j] << "\t" << DAConvEff_Correct_Solutions_dunn[j] << "\t" << DAConvEff_Correct_Solutions_dunn_upper[j] << "\t" << DAConvEff_Correct_Solutions_dunn_lower[j] << endl;
+        }
+        else {
+            outFile2 << THREADS <<"\t"<< STAGES << "\t" << SWEEPS << "\t" << t_dist_Valid_SA_val[j] << "\t" << dunn_index_bins_centers[j] << "\t" << dunn_index_bins_edges[j] << "\t" << 100 << "\t" << SAConvEff_Valid_Solutions_dunn[j] << "\t" << SAConvEff_Valid_Solutions_dunn_upper[j] << "\t" << SAConvEff_Valid_Solutions_dunn_lower[j] << "\t" << SAConvEff_CorrectGivenValid_Solutions_dunn[j] << "\t" << SAConvEff_CorrectGivenValid_Solutions_dunn_upper[j] << "\t" << SAConvEff_CorrectGivenValid_Solutions_dunn_lower[j] << "\t" << DAConvEff_Correct_Solutions_dunn[j] << "\t" << DAConvEff_Correct_Solutions_dunn_upper[j] << "\t" << DAConvEff_Correct_Solutions_dunn_lower[j] << endl;
+        }
+    }*/
+
+    outFile2.close();
+
     return 0;
 }
