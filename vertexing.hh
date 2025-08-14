@@ -6,6 +6,13 @@
 
 using namespace std;
 
+#ifndef CONFIG_H
+#define CONFIG_H
+
+const bool flag_cluster_major = true;
+
+#endif // CONFIG_H
+
 struct event_t {
     int nV;
     int nT;
