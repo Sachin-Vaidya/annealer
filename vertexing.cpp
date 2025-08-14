@@ -151,7 +151,7 @@ ftype vertex_mse(const vector<ftype> &vertices, const event_t &event) {
     sort(event_vertices.begin(), event_vertices.end());
 
     // cout both
-    cout << "vertices: ";
+    /*cout << "vertices: ";
     for (int i = 0; i < vertices.size(); i++) {
         cout << vertices_copy[i] << " ";
     }
@@ -159,7 +159,7 @@ ftype vertex_mse(const vector<ftype> &vertices, const event_t &event) {
     for (int i = 0; i < event_vertices.size(); i++) {
         cout << event_vertices[i] << " ";
     }
-    cout << "\n";
+    cout << "\n";*/
 
     return dp_matching(vertices_copy, event_vertices);
 
@@ -181,16 +181,19 @@ ftype energy_from_assignment(const vector<int> &assignment, const QUBO &qubo, co
         if (vertex < 0 || vertex >= nV) {
             // Handle error: print a message, throw an exception, or adjust vertex
             // For debugging, a simple print is good:
-            std::cerr << "Error: 'vertex' value " << vertex << " is out of bounds for nV=" << nV << std::endl;
+            //std::cerr << "Error: 'vertex' value " << vertex << " is out of bounds for nV=" << nV << std::endl;
             // You might even want to skip this iteration or exit.
             continue; // Skip current iteration if vertex is invalid
         }
-        /*
-        //cluster-major
-        solution[nT * vertex + i] = 1; // Or the corrected index formula
-        */
-        //track-major
-        solution[vertex + nV * i] = 1;
+        
+        if(flag_cluster_major) {
+            //cluster-major
+            solution[nT * vertex + i] = 1;
+        }
+        else {
+            //track-major
+            solution[vertex + nV * i] = 1;
+        }
     }
 
     return qubo.evaluate(solution);
@@ -216,23 +219,23 @@ ftype print_score(const vector<int> &assignment, const event_t &event) {
     // }
     // cout << endl;
     
-    cout<<"Number of tracks per vertex X Number of vertices = " << event.nT << ", Number of vertices = "<<event.nV<<endl;
+    //cout<<"Number of tracks per vertex X Number of vertices = " << event.nT << ", Number of vertices = "<<event.nV<<endl;
 
     ftype ari = adjustedRandIndex(true_labels, assignment);
 
-    cout << "ARI: " << ari << endl;
+    //cout << "ARI: " << ari << endl;
     
     return ari;
 }
 
 // https://arxiv.org/pdf/1903.08879
 QUBO event_to_qubo(const event_t &event) {
+    ftype lambda = 2.0;
+    ftype scale = 3.0;
+    
     int nV = event.nV;
     int nT = event.nT;
     const auto& trackData = event.trackData;
-
-    const ftype scale = 1.5;
-    //const ftype scale = 1.;
 
     qubo_t qubo_map;
 
@@ -244,7 +247,7 @@ QUBO event_to_qubo(const event_t &event) {
         // return 1.0 - exp(-m * x);
         // return x + log(1.0 + x);
         // return x;
-
+        //return scale * x;
         return scale * (1.0 - exp(-m * x));
         // cout << x << '\n';
         // return 1.0 - exp(-x);
@@ -252,19 +255,16 @@ QUBO event_to_qubo(const event_t &event) {
         // return 1.0 - exp(-x);
     };
 
-    /*
-    auto idx = [nT](int track, int vertex) {
-        //cluster-major
-        return track + nT * vertex;
+    auto idx = [event](int track, int vertex) {
+        if(flag_cluster_major) {
+            //cluster-major
+            return track + event.nT * vertex;
+        }
+        else {
+            //track-major
+            return event.nV * track + vertex;    
+        }
     };
-    */
-    
-    auto idx = [nV](int track, int vertex) {
-        //track-major
-        return nV * track + vertex;
-    };
-
-    ftype lambda = 1.2;
 
     ftype max_D = 0.0;
 
@@ -299,13 +299,9 @@ QUBO event_to_qubo(const event_t &event) {
         }
     }
 
-    //lambda *= max_D/scale;
-    //lambda /= max_D;
-    //lambda /= log(max_D);
-    //lambda *= exp(-1.0);
-    //lambda *= scale/10;
+    //lambda *= max_D;
     
-    std::cout << "max D = " << max_D << endl;
+    //std::cout << "max D = " << max_D << endl;
 
     // penalty
     for (int i = 0; i < nT; ++i) {
@@ -317,16 +313,18 @@ QUBO event_to_qubo(const event_t &event) {
         }
     }
     
-    cout << "qubo num terms: " << qubo_map.size() << '\n';
-    cout << "max possible: " << nT * nV << "^2\n";
+    //cout << "qubo num terms: " << qubo_map.size() << '\n';
     
-    /*std::cout << "start" << endl;
+    //cout << "max possible: " << nT * nV << "^2\n";
+    
+    /*cout << "qubo terms: \n";
+    //std::cout << "start" << endl;
     for (const auto& entry : qubo_map) {
         auto indices = entry.first;
         ftype value = entry.second;
-        std::cout << "(" << indices.first << "," << indices.second << ") : " << value << '\n';
+        //std::cout << "(" << indices.first << "," << indices.second << ") : " << value << '\n';
     }
-    std::cout << "end" << endl;*/
+    //std::cout << "end" << endl;*/
 
     return QUBO(qubo_map);
 }
@@ -343,7 +341,7 @@ ftype get_max_D(const event_t &event) {
         }
     }
 
-    cout << "max_D: " << max_D << '\n' << endl;
+    //cout << "max_D: " << max_D << '\n' << endl;
 
     return max_D;
 }
@@ -362,8 +360,8 @@ ftype evaluate_full_OTF(const solution_t &x, const event_t &event, ftype max_D) 
 }
 
 ftype evaluate_diff_on_the_fly(const solution_t &x, const event_t &event, int flip_idx, ftype max_D) {
-    ftype lambda = 1.2;
-    
+    ftype lambda = 2.0;
+    ftype scale = 3.0;
     int nT = event.nT, nV = event.nV;
     int track = flip_idx % nT;
     int vertex = flip_idx / nT;
@@ -371,9 +369,6 @@ ftype evaluate_diff_on_the_fly(const solution_t &x, const event_t &event, int fl
     auto D = [](pair<ftype, ftype> i, pair<ftype, ftype> j) {
         return abs(i.first - j.first) / sqrt(i.second * i.second + j.second * j.second);
     };
-
-    const ftype scale = 1.5;
-    //const ftype scale = 1.;
 
     auto g = [scale](ftype x, ftype m = 5) {
         // return 1.0 - exp(-m * x);
@@ -387,16 +382,15 @@ ftype evaluate_diff_on_the_fly(const solution_t &x, const event_t &event, int fl
         // return 1.0 - exp(-x);
     };
 
-    /*
-    auto idx = [nT](int track, int vertex) {
-        //cluster-major
-        return track + nT * vertex;
-    };
-    */
-    
-    auto idx = [nV](int track, int vertex) {
-        //track-major
-        return nV * track + vertex;
+    auto idx = [event](int track, int vertex) {
+        if(flag_cluster_major) {
+            //cluster-major
+            return track + event.nT * vertex;
+        }
+        else {
+            //track-major
+            return event.nV * track + vertex;    
+        }
     };
 
     ftype diff = 0.0;
@@ -423,12 +417,14 @@ ftype ground_state(const QUBO &qubo, const event_t &event) {
     solution_t solution(event.nT*event.nV, 0);
 
     auto idx = [event](int track, int vertex) {
-        /*
-        //cluster-major
-        return track + event.nT * vertex;
-        */
-        //track-major
-        return event.nV * track + vertex;
+        if(flag_cluster_major) {
+            //cluster-major
+            return track + event.nT * vertex;
+        }
+        else {
+            //track-major
+            return event.nV * track + vertex;    
+        }
     };
 
     for (int i = 0; i < event.nT; i++) {
@@ -556,6 +552,7 @@ ftype calculate_dunn_index(const std::vector<int>& assignment, const event_t& ev
     // 4. Calculate the Dunn Index
     return min_inter_d / max_intra_d;
 }
+
 
 /////////////////////// ==================== Dunn Index end ===================== /////////////////////////////
 
