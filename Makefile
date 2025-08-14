@@ -4,7 +4,7 @@
 CXX = g++
 #CXXFLAGS = -march=native -std=c++20 -Wall -pthread -Ofast
 #CXXFLAGS = -fopenmp -g -fsanitize=address -march=native -std=c++20 -w -pthread -Ofast
-CXXFLAGS = -fopenmp -g -fsanitize=address -std=c++20 -w -O3 -march=native -I /home/vaidya2/Bell/boost_1_88_0
+CXXFLAGS = -fopenmp -g -static-libasan -fsanitize=address -std=c++20 -w -O3 -march=native -I /home/vaidya2/boost_1_88_0
 #CXXFLAGS = -march=native -std=c++20 -w -pthread -Ofast
 
 # Source files
@@ -26,10 +26,7 @@ $(TARGET): $(SRCS) $(HEADERS)
 # Run the program 
 run: $(TARGET)
 	echo "Running $(TARGET)..."
-	#./$(TARGET) $(THREADS) $(STAGES) $(SAMPLES_PER_THREAD) $(SWEEPS) $(DA_SWEEPS) 5V_30T/events_5V_30T_ 5Vertices_30TracksPerVertex .json
-	#./$(TARGET) $(THREADS) $(STAGES) $(SAMPLES_PER_THREAD) $(SWEEPS) $(DA_SWEEPS) QPU_3Vertices_15Tracks_100Events/3Vertices_15Tracks_Event 3Vertices_15Tracks /serializedEvents.json
-	./$(TARGET) $(THREADS) $(STAGES) $(SAMPLES_PER_THREAD) $(SWEEPS) $(DA_SWEEPS) QPU_4Vertices_20Tracks_100Events/4Vertices_20Tracks_Event 4Vertices_20Tracks /serializedEvents.json
-	#./$(TARGET) $(THREADS) $(STAGES) $(SAMPLES_PER_THREAD) $(SWEEPS) $(DA_SWEEPS) QPU_2Vertices_10Tracks_100Events/2Vertices_10Tracks_Event 2Vertices_10Tracks /serializedEvents.json
+	./$(TARGET) $(THREADS) $(STAGES) $(SAMPLES_PER_THREAD) $(SWEEPS) $(DA_SWEEPS) QPU_$(VERTICES)Vertices_$(TRACKS)Tracks_100Events/$(VERTICES)Vertices_$(TRACKS)Tracks_Event $(VERTICES)Vertices_$(TRACKS)Tracks /serializedEvents.json
 	
 	echo "Execution finished."
 
