@@ -599,9 +599,9 @@ bool is_correct_solution(const vector<int>& int_vert_assignment, const vector<ve
     return filtered_clusters == sorted_truth_clusters;
 }
 
-vector<result> multithreaded_sim_anneal(const QUBO& Q, const settings s, int num_threads, int samples_per_thread, const vector<solution_t> init_guess, string filename, int num_stage) {
+/*vector<result> multithreaded_sim_anneal(const QUBO& Q, const settings s, int num_threads, int samples_per_thread, const vector<solution_t> init_guess, string filename, int num_stage) {
     vector<result> results(num_threads * samples_per_thread);
-    vector<solution_t> local_init_guess;
+    vector<solution_t> local_init_guess = init_guess;
 
     // Handle init_guess fallback logic
     if (init_guess.size() != num_threads) {
@@ -635,8 +635,7 @@ vector<result> multithreaded_sim_anneal(const QUBO& Q, const settings s, int num
             settings s_copy = s;
             s_copy.seed += tid * samples_per_thread + j;
 
-            result& r = results[index];
-            r = sim_anneal(Q, s_copy, local_init_guess[tid], num_stage);
+            results[index] = sim_anneal(Q, s_copy, local_init_guess[tid], num_stage);
 
             const auto& vert = r.solution;
             vector<int> int_vert_assignment(nT, -1);
@@ -700,12 +699,12 @@ vector<result> multithreaded_sim_anneal(const QUBO& Q, const settings s, int num
     });
 
     return results;
-}
+}*/
 
 /*// returns sorted results of length num_threads * samples_per_thread. first elem is best.
 vector<result> multithreaded_sim_anneal(const QUBO& Q, const settings s, int num_threads, int samples_per_thread, const vector<solution_t> init_guess, string filename, int num_stage) {
     vector<result> results(num_threads * samples_per_thread);
-    vector<solution_t> local_init_guess;
+    vector<solution_t> local_init_guess = init_guess;
 
     // Handle init_guess fallback logic
     if (init_guess.size() != num_threads) {
@@ -741,8 +740,7 @@ vector<result> multithreaded_sim_anneal(const QUBO& Q, const settings s, int num
             settings s_copy = s;
             s_copy.seed += index;
 
-            result& r = results[index];
-            r = sim_anneal(Q, s_copy, local_init_guess[tid], num_stage);
+            results[index] = sim_anneal(Q, s_copy, local_init_guess[tid], num_stage);
 
             const auto& vert = r.solution;
             vector<int> int_vert_assignment(nT, -1);
@@ -773,9 +771,9 @@ vector<result> multithreaded_sim_anneal(const QUBO& Q, const settings s, int num
     return results;
 }*/
 
-/*vector<result> multithreaded_sim_anneal(const QUBO& Q, const settings s, int num_threads, int samples_per_thread, const vector<solution_t> init_guess, string filename, int num_stage) {
+vector<result> multithreaded_sim_anneal(const QUBO& Q, const settings s, int num_threads, int samples_per_thread, const vector<solution_t> init_guess, string filename, int num_stage) {
     vector<result> results(num_threads * samples_per_thread);
-    vector<solution_t> local_init_guess;
+    vector<solution_t> local_init_guess = init_guess;
 
     // Handle init_guess fallback logic
     if (init_guess.size() != num_threads) {
@@ -797,12 +795,11 @@ vector<result> multithreaded_sim_anneal(const QUBO& Q, const settings s, int num
         for (int j = 0; j < samples_per_thread; j++) 
         {
             int index = tid * samples_per_thread + j;
-            
-            settings s_copy = s;
-            s_copy.seed += index;
 
-            result& r = results[index];
-            r = sim_anneal(Q, s_copy, local_init_guess[tid], num_stage);
+            settings s_copy = s;
+            s_copy.seed += tid * samples_per_thread + j;
+
+            results[index] = sim_anneal(Q, s_copy, local_init_guess[tid], num_stage);
         }
     }
     
@@ -962,7 +959,7 @@ std::pair<int, int> compute_solution_efficiencies(const string& filename, const 
     //std::cout << Valid_SA_Solutions << ", " << CorrectGivenValid_SA_Solutions << std::endl;
 
     return {Valid_SA_Solutions, CorrectGivenValid_SA_Solutions};
-}*/
+}
 
 // replaces bottom half with top half
 vector<solution_t> best_effort_unique(const vector<result>& results, int n) {
@@ -1225,8 +1222,8 @@ pair<clustering_result, clustering_result> run_vertexing(string filename) {
 
     auto time_just_after_SA = chrono::high_resolution_clock::now();
     
-    //auto [valid_eff, correct_eff] = compute_solution_efficiencies(filename, s, flag_cluster_major);
-    auto [valid_eff, correct_eff] = std::make_pair(Valid_SA_Solutions, CorrectGivenValid_SA_Solutions);
+    auto [valid_eff, correct_eff] = compute_solution_efficiencies(filename, s, flag_cluster_major);
+    //auto [valid_eff, correct_eff] = std::make_pair(Valid_SA_Solutions, CorrectGivenValid_SA_Solutions);
 
     best = results[0];
 
@@ -1520,8 +1517,8 @@ std::tuple<ftype, ftype, ftype> calculate_se_mean_bin(const std::vector<ftype>& 
 
 
 int main(int argc, char* argv[]) {
-    if (argc != 9) { // argv[0] is program name, argv[1..5] are THREADS, STAGES, SAMPLES_PER_THREAD, SWEEPS, DA_SWEEPS
-        std::cerr << "Usage: ./annealer <THREADS> <STAGES> <SAMPLES_PER_THREAD> <input_filename> <output_filenames_prefix> <name_or_extension>" << std::endl;
+    if (argc != 10) { // argv[0] is program name, argv[1..5] are THREADS, STAGES, SAMPLES_PER_THREAD, SWEEPS, DA_SWEEPS
+        std::cerr << "Usage: ./annealer <THREADS> <STAGES> <SAMPLES_PER_THREAD> <input_filename> <output_filenames_prefix> <name_or_extension> <run_dir>" << std::endl;
         return 1;
     }
 
@@ -1555,7 +1552,7 @@ int main(int argc, char* argv[]) {
 
     string extension = argv[8];
 
-    std::string dir_name_str = std::string(argv[7]) + "/" + std::to_string(THREADS) + "threads_" + std::to_string(STAGES) + "stages_" + std::to_string(SAMPLES_PER_THREAD) + "SamplesPerThread_" + std::to_string(SWEEPS) + "sweeps_" + std::to_string(DA_SWEEPS) + "DAsweeps";
+    std::string dir_name_str = std::string(argv[9]) + "/" + std::string(argv[7]) + "/" + std::to_string(THREADS) + "threads_" + std::to_string(STAGES) + "stages_" + std::to_string(SAMPLES_PER_THREAD) + "SamplesPerThread_" + std::to_string(SWEEPS) + "sweeps_" + std::to_string(DA_SWEEPS) + "DAsweeps";
     if (createDirectoriesRecursively(dir_name_str)) {
         //std::cout << "Directories created or already existed.\n";
     } else {
