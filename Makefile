@@ -26,7 +26,7 @@ $(TARGET): $(SRCS) $(HEADERS)
 # Run the program 
 run: $(TARGET)
 	echo "Running $(TARGET)..."
-	./$(TARGET) $(THREADS) $(STAGES) $(SAMPLES_PER_THREAD) $(SWEEPS) $(DA_SWEEPS) QPU_$(VERTICES)Vertices_$(TRACKS)Tracks_100Events/$(VERTICES)Vertices_$(TRACKS)Tracks_Event $(VERTICES)Vertices_$(TRACKS)Tracks /serializedEvents.json
+	./$(TARGET) $(THREADS) $(STAGES) $(SAMPLES_PER_THREAD) $(SWEEPS) $(DA_SWEEPS) QPU_$(VERTICES)Vertices_$(TRACKS)Tracks_100Events/$(VERTICES)Vertices_$(TRACKS)Tracks_Event $(VERTICES)Vertices_$(TRACKS)Tracks /serializedEvents.json single_thread_runs
 	
 	echo "Execution finished."
 
