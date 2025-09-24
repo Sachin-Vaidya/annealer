@@ -1,21 +1,18 @@
 #!/bin/bash
 
-tuples=("(3 15)") #("(2 10)" "(2 16)" "(2 28)" "(3 15)" "(4 16)" "(4 20)" "(5 15)")
+tuples=("(5 15 14 12)" "(4 20 13 14)" "(4 16 17 16)" "(3 15 15 12)" "(2 28 17 28)" "(2 16 21 21)" "(2 10 40 21)")
 
 # Iterate through each tuple by name
 for t in "${tuples[@]}"; do
     
     t="${t//[\(\)]/}"  # Remove parentheses
-    read -r VERTICES TRACKS <<< "$t"
+    read -r VERTICES TRACKS SWEEPS DA_SWEEPS <<< "$t"
 
-    declare -a threads=(1) #25 50 100)
+    declare -a threads=(1) #20 50)
     
-    declare -a stages=(1) #2 5 10)
+    declare -a stages=(1) #5 10)
     
-    declare -a sweeps=(27) #5 10 20)
-    
-    #declare -a sweeps=(6)
-    #DA_SWEEPS=5
+    declare -a sweeps=(10 50 100 150) #(${SWEEPS})
     
     mkdir -p slurm
     
@@ -26,6 +23,10 @@ for t in "${tuples[@]}"; do
             for SWEEPS in "${sweeps[@]}"
             do
                 if (( SWEEPS % STAGES == 0 && SWEEPS != STAGES)); then
+                
+                    DA_SWEEPS=${SWEEPS}
+                    #DA_SWEEPS=${DA_SWEEPS}
+                    
                     output_file="ConvergenceEfficiency_and_TimePerAnneal.txt"
                     >"$output_file"
     
@@ -37,12 +38,12 @@ for t in "${tuples[@]}"; do
                     export OMP_NUM_THREADS=${THREADS}  # Set number of threads to your cores count
                     SAMPLES_PER_THREAD=$((10000 / THREADS))
                 
-                    echo "Running with ${VERTICES} VERTICES and ${TRACKS} TRACKS, THREADS=${THREADS}, STAGES=${STAGES}, SAMPLES_PER_THREAD=${SAMPLES_PER_THREAD}, SWEEPS=${SWEEPS}, DA_SWEEPS=${SWEEPS}"
+                    echo "Running with ${VERTICES} VERTICES and ${TRACKS} TRACKS, THREADS=${THREADS}, STAGES=${STAGES}, SAMPLES_PER_THREAD=${SAMPLES_PER_THREAD}, SWEEPS=${SWEEPS}, DA_SWEEPS=${DA_SWEEPS}"
                     
                     SCRIPT_DIR="job_scripts"
                     mkdir -p "$SCRIPT_DIR"
                     
-                    JOB_FILE="${SCRIPT_DIR}/job_${VERTICES}_${TRACKS}_${THREADS}_${STAGES}_${SWEEPS}_${SWEEPS}.sh"
+                    JOB_FILE="${SCRIPT_DIR}/job_${VERTICES}_${TRACKS}_${THREADS}_${STAGES}_${SWEEPS}_${DA_SWEEPS}.sh"
                 
                     cat > "$JOB_FILE" << EOF
 #!/bin/bash
@@ -52,19 +53,19 @@ for t in "${tuples[@]}"; do
 #SBATCH --job-name=run_${THREADS}
 #SBATCH --nodes=1
 #SBATCH --ntasks=${THREADS}
-#SBATCH --time=00:10:00
+#SBATCH --time=02:00:00
 
 export SAMPLES_PER_THREAD=${SAMPLES_PER_THREAD}
 
 make clean
-make && make run VERTICES=${VERTICES} TRACKS=${TRACKS} THREADS=${THREADS} STAGES=${STAGES} SWEEPS=${SWEEPS} DA_SWEEPS=${SWEEPS} SAMPLES_PER_THREAD=${SAMPLES_PER_THREAD}
+make && make run VERTICES=${VERTICES} TRACKS=${TRACKS} THREADS=${THREADS} STAGES=${STAGES} SWEEPS=${SWEEPS} DA_SWEEPS=${DA_SWEEPS} SAMPLES_PER_THREAD=${SAMPLES_PER_THREAD}
 EOF
         
                     chmod +x "$JOB_FILE"
                     
                     # Submit job and capture Job ID
                     jobid=$(sbatch "$JOB_FILE" | awk '{print $4}')
-                    echo "Submitted job slurm-$jobid for VERTICES=$VERTICES, TRACKS=$TRACKS, THREADS=$THREADS , STAGES=$STAGES , SWEEPS=$SWEEPS, DA_SWEEPS=$SWEEPS"
+                    echo "Submitted job slurm-$jobid for VERTICES=$VERTICES, TRACKS=$TRACKS, THREADS=$THREADS , STAGES=$STAGES , SWEEPS=$SWEEPS, DA_SWEEPS=$DA_SWEEPS"
                     
                     echo ""
                     
