@@ -279,13 +279,13 @@ pair<vector<int>, vector<ftype>> runDA(event_t event, int nSWEEPS) {
     int maxIterations = 100;
     ftype convergenceCriteria = 1e-6; // Squared difference between new centroid and old centroid*/
     
-    ftype Tmin = 4;
-    ftype betaMax = 1.0 / Tmin;
+    ftype Tmin = 10.0;
     ftype Tstop = 1.0;
+    ftype betaMax = 1.0 / Tmin;
     ftype nSweeps = nSWEEPS;
     bool useLinearCooling = false; 
     ftype delta = 1e-3;
-    int maxIterations = 100;
+    int maxIterations = 10;
     ftype convergenceCriteria = 1e-6;
 	
 	int Kmax = event.nV; //TODO: Set this to nVertices
@@ -441,7 +441,7 @@ pair<vector<int>, vector<ftype>> runDA(event_t event, int nSWEEPS) {
 	std::clock_t time_stop = std::clock();
 
 	//printf("The current centroid locations are: \n");
-	for (int i = 0; i < clusterCentroids.size(); ++i) {
+	/*for (int i = 0; i < clusterCentroids.size(); ++i) {
 		//printf("\t Centroid %i: %f \n", i, clusterCentroids[i]);
 	}
 	//printf("\n");
@@ -450,7 +450,7 @@ pair<vector<int>, vector<ftype>> runDA(event_t event, int nSWEEPS) {
 	for (int i = 0; i < clusterProbabilities.size(); ++i) {
 		//printf("\t Probability %i: %f \n", i, clusterProbabilities[i]);
 	}
-	//printf("\n");
+	//printf("\n");*/
 
     // assoc matrix contains mapping from cluster number -> probability of track being in that cluster
     // we will process it to create a vector of length track count, where each element is the cluster number
