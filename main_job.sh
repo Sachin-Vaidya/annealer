@@ -1,6 +1,12 @@
 #!/bin/bash
 
-tuples=("(5 15 14 12)" "(4 20 13 14)" "(4 16 17 16)" "(3 15 15 12)" "(2 28 17 28)" "(2 16 21 21)" "(2 10 40 21)")
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --time=10:00:00
+#SBATCH --account=physics
+#SBATCH --partition=cpu
+
+tuples=("(4 20 13 15)") #("(5 15 14 12)" "(4 20 13 15)" "(4 16 17 16)" "(3 15 15 12)" "(2 28 17 28)" "(2 16 21 21)" "(2 10 40 21)")
 
 # Iterate through each tuple by name
 for t in "${tuples[@]}"; do
@@ -12,7 +18,7 @@ for t in "${tuples[@]}"; do
     
     declare -a stages=(1) #5 10)
     
-    declare -a sweeps=(10 50 100 150) #(${SWEEPS})
+    declare -a sweeps=(${SWEEPS}) #(10 50 100 150)
     
     mkdir -p slurm
     
@@ -24,8 +30,8 @@ for t in "${tuples[@]}"; do
             do
                 if (( SWEEPS % STAGES == 0 && SWEEPS != STAGES)); then
                 
-                    DA_SWEEPS=${SWEEPS}
-                    #DA_SWEEPS=${DA_SWEEPS}
+                    #DA_SWEEPS=${SWEEPS}
+                    DA_SWEEPS=${DA_SWEEPS}
                     
                     output_file="ConvergenceEfficiency_and_TimePerAnneal.txt"
                     >"$output_file"
