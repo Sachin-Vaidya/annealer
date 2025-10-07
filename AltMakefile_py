@@ -4,7 +4,7 @@
 PYTHON = python
 
 # Source script
-SRC = binning_the_efficiency_results.py
+SRC = binning_the_efficiency_results_approach2.py
 TARGET = binning
 
 # Default target
@@ -14,7 +14,7 @@ all: $(SRC)
 # Run the program 
 run:
 	echo "Running Python script..."
-	$(PYTHON) $(SRC) $(THREADS) $(STAGES) $(SAMPLES_PER_THREAD) $(SWEEPS) $(DA_SWEEPS) QPU_$(VERTICES)Vertices_$(TRACKS)Tracks_100Events/$(VERTICES)Vertices_$(TRACKS)Tracks_Event $(VERTICES)Vertices_$(TRACKS)Tracks /serializedEvents.json
+	$(PYTHON) $(SRC) $(THREADS) $(STAGES) $(SAMPLES_PER_THREAD) $(SWEEPS) $(DA_SWEEPS) QPU_$(VERTICES)Vertices_$(TRACKS)Tracks_100Events/$(VERTICES)Vertices_$(TRACKS)Tracks_Event $(VERTICES)Vertices_$(TRACKS)Tracks /serializedEvents.json single_thread_runs
 
 	echo "Execution finished."
 
