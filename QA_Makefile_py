@@ -1,0 +1,28 @@
+# Makefile for Python project (mirroring C++ structure)
+
+# Python settings
+PYTHON = python
+
+# Source script
+SRC = QA_convergence_efficiency_estimation.py
+TARGET = binning
+
+# Default target
+all: $(SRC)
+	echo "Python script ready: $(SRC)"
+
+# Run the program 
+run:
+	echo "Running Python script..."
+	$(PYTHON) $(SRC) QPU_$(VERTICES)Vertices_$(TRACKS)Tracks_100Events/$(VERTICES)Vertices_$(TRACKS)Tracks_Event $(VERTICES)Vertices_$(TRACKS)Tracks /serializableResponse.json
+
+	echo "Execution finished."
+
+# Clean up generated files
+clean:
+	echo "Cleaning up..."
+	rm -f *.pyc __pycache__/* 2>/dev/null || true
+	echo "Clean complete."
+
+# Phony targets
+.PHONY: all clean run
